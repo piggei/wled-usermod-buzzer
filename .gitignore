@@ -1,0 +1,31 @@
+# Arduino / PlatformIO build output
+.pio/
+build/
+*.bin
+*.elf
+*.map
+*.hex
+.sconsign*.dblite
+compile_commands.json
+
+# Host-test and Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary and diagnostic files
+*.tmp
+*.bak
+*.orig
+*.log
+*~
+*Zone.Identifier
+core
+core.*
+vgcore.*

@@ -1,0 +1,23 @@
+{
+  "name": "wled-usermod-buzzer",
+  "version": "0.1.0",
+  "description": "Standalone active/passive buzzer service usermod for WLED",
+  "keywords": [
+    "wled",
+    "buzzer",
+    "audio",
+    "esp32",
+    "ledc",
+    "usermod"
+  ],
+  "license": "EUPL-1.2",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "build": {
+    "libArchive": false,
+    "srcDir": ".",
+    "srcFilter": [
+      "+<*.cpp>"
+    ]
+  }
+}
