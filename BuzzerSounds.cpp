@@ -4,30 +4,32 @@
 
 namespace {
 constexpr BuzzerNote SOUND_BEEP[] = {
-  {1000, 120, 0},
+  {1000, 120, 200},
 };
 
 constexpr BuzzerNote SOUND_DOUBLE_BEEP[] = {
   {1000, 80, 80},
-  {1000, 110, 0},
+  {1000, 110, 250},
 };
 
 // High three-pulse trill: 2 kHz passive tone,
-// 90 ms ON with 70 ms gaps between the three pulses.
+// 90 ms ON with 70 ms gaps between the three pulses. The final 550 ms gap
+// is consumed only when another execution follows, so one-shot playback keeps
+// the validated three-pulse cadence while repeat/loop playback gets a clean pause.
 constexpr BuzzerNote SOUND_TRIPLE_BEEP[] = {
   {2000, 90, 70},
   {2000, 90, 70},
-  {2000, 90, 0},
+  {2000, 90, 550},
 };
 
 constexpr BuzzerNote SOUND_NOTIFICATION[] = {
-  {1175, 150, 0},
+  {1175, 150, 250},
 };
 
 constexpr BuzzerNote SOUND_SUCCESS[] = {
   {659, 80, 30},
   {784, 90, 30},
-  {988, 190, 0},
+  {988, 190, 300},
 };
 
 // Victory pattern from the supplied BeepBox v9 URL, transposed +12 semitones.
@@ -56,7 +58,7 @@ constexpr BuzzerNote SOUND_YANKEE_DOODLE[] = {
   {587, 280, 10}, // D5
   {659, 280, 10}, // E5
   {523, 560, 10}, // C5 - held penultimate note
-  {494, 560, 0},  // B4 - held ending
+  {494, 560, 400},  // B4 - held ending
 };
 
 // Exact monophonic Fail pattern decoded from the supplied BeepBox v9 URL.
@@ -69,7 +71,7 @@ constexpr BuzzerNote SOUND_FAIL[] = {
   {233, 300, 100}, // A#3
   {220, 300, 100}, // A3
   {208, 600, 200}, // G#3
-  {196, 800, 0},   // G3
+  {196, 800, 350},   // G3
 };
 
 // Star Wars cue measured directly from the supplied reference MP3.
@@ -85,35 +87,35 @@ constexpr BuzzerNote SOUND_STAR_WARS[] = {
   {440, 400,   0}, // A4
   {392, 400,   0}, // G4
   {698,1200,   0}, // F5 long
-  {523,1200,   0}, // C5 long ending
+  {523,1200, 400}, // C5 long ending
 };
 
 constexpr BuzzerNote SOUND_WARNING[] = {
   {1175, 110, 70},
   {880, 210, 130},
   {1175, 110, 70},
-  {880, 260, 0},
+  {880, 260, 250},
 };
 
 constexpr BuzzerNote SOUND_ERROR[] = {
   {294, 150, 150},
-  {294, 190, 0},
+  {294, 190, 300},
 };
 
 constexpr BuzzerNote SOUND_CONNECT[] = {
   {880, 65, 25},
-  {1175, 130, 0},
+  {1175, 130, 250},
 };
 
 constexpr BuzzerNote SOUND_DISCONNECT[] = {
   {1175, 65, 25},
-  {880, 150, 0},
+  {880, 150, 250},
 };
 
 constexpr BuzzerNote SOUND_ATTENTION[] = {
   {1319, 70, 65},
   {1319, 70, 65},
-  {1319, 150, 0},
+  {1319, 150, 300},
 };
 
 constexpr BuzzerNote SOUND_ALARM[] = {
@@ -125,6 +127,9 @@ constexpr BuzzerNote SOUND_ALARM[] = {
   {1175, 480, 180},
 };
 
+// The final gap of every built-in sound is an inter-execution pause.
+// BuzzerEngine consumes it only when repeat/loop playback has another execution,
+// so one-shot playback remains audibly unchanged.
 constexpr BuzzerSound SOUNDS[] = {
   {"beep", "Beep", SOUND_BEEP, sizeof(SOUND_BEEP) / sizeof(SOUND_BEEP[0])},
   {"double_beep", "Double Beep", SOUND_DOUBLE_BEEP, sizeof(SOUND_DOUBLE_BEEP) / sizeof(SOUND_DOUBLE_BEEP[0])},

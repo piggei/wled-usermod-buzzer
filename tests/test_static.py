@@ -9,7 +9,7 @@ sounds = (root / "BuzzerSounds.cpp").read_text(encoding="utf-8")
 
 for token in [
     'BUZZER_VERSION = "0.1.0"',
-    'BUZZER_BUILD = "rc.6"',
+    'BUZZER_BUILD = "rc.8"',
     'PinManager::allocatePin(hardwarePin_, true, PinOwner::UM_Unspecified)',
     'PinManager::allocateLedc(1)',
     'PinManager::deallocateLedc(ledcChannel_, 1)',
@@ -39,7 +39,7 @@ for sound in [
 ]:
     assert f"`{sound}`" in readme, sound
 
-assert '"version": "0.1.0-rc.6"' in library
+assert '"version": "0.1.0-rc.8"' in library
 assert "iDotMatrix" not in usermod
 assert "IDotMatrix" not in usermod
 assert "delay(" not in usermod
@@ -53,7 +53,8 @@ assert "V.firstChild.data='Volume: '" in usermod
 assert "Active buzzers reproduce rhythm only. Passive buzzers reproduce note pitch." in usermod
 assert "{2000, 90, 70}" in sounds
 assert sounds.count("{2000, 90, 70}") == 2
-assert "{2000, 90, 0}" in sounds
+assert "{2000, 90, 550}" in sounds
+assert "{2000, 90, 0}" not in sounds
 for token in ["{1047, 100, 50}", "{1319, 100, 50}", "{1568, 200, 100}", "{1568, 400, 100}"]:
     assert token in sounds, token
 assert sounds.count("{1047, 100, 50}") == 2
@@ -64,7 +65,7 @@ assert "SOUND_YANKEE_DOODLE" in sounds
 assert sounds.count("// C5") >= 6
 assert "hr{display:none}" in usermod and "Buzzer:enabled" in usermod
 assert "{294, 150, 150}" in sounds
-assert "{294, 190, 0}" in sounds
+assert "{294, 190, 300}" in sounds
 assert "{392, 140, 35}" not in sounds
 assert "margin:16px 0 8px" in usermod
 
@@ -78,21 +79,21 @@ assert "{220, 300, 100}" in sounds
 
 assert "{208, 600, 200}" in sounds
 
-assert "{196, 800, 0}" in sounds
+assert "{196, 800, 350}" in sounds
 
 assert "{523, 560, 10}" in sounds
 
-assert "{494, 560, 0}" in sounds
+assert "{494, 560, 400}" in sounds
 
 # b012 sound-only regression checks.
 assert "SOUND_STAR_WARS" in sounds
 assert '{"star_wars", "Star Wars"' in sounds
-assert "{1175, 150, 0}" in sounds
+assert "{1175, 150, 250}" in sounds
 assert "{880, 80, 45}" not in sounds
 assert "{880, 65, 25}" in sounds
-assert "{1175, 130, 0}" in sounds
+assert "{1175, 130, 250}" in sounds
 assert "{1175, 65, 25}" in sounds
-assert "{880, 150, 0}" in sounds
+assert "{880, 150, 250}" in sounds
 
 # b018 Star Wars reference-MP3 regression checks.
 assert "{1568, 400, 100}" in sounds
@@ -100,12 +101,12 @@ assert sounds.count("{262, 100, 100}") == 3
 for token in [
     "{349,1200,   0}", "{523,1200, 400}",
     "{466, 400,   0}", "{440, 400,   0}", "{392, 400,   0}",
-    "{698,1200,   0}", "{523,1200,   0}",
+    "{698,1200,   0}", "{523,1200, 400}",
 ]:
     assert token in sounds, token
 
 # Release hardening and UI regression checks.
-assert 'BUZZER_BUILD = "rc.6"' in usermod
+assert 'BUZZER_BUILD = "rc.8"' in usermod
 assert '#include "BuzzerInput.h"' in usermod
 assert 'BuzzerInput::parseUnsignedDecimal' in usermod
 assert 'BuzzerInput::parseBooleanText' in usermod

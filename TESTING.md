@@ -1,6 +1,6 @@
-# WLED Buzzer Usermod - v0.1.0-rc.6 test plan
+# WLED Buzzer Usermod - v0.1.0-rc.8 test plan
 
-This is the final verification checklist before promotion to v0.1.0. The UI and all 15 built-in sound definitions are frozen; RC5 is intended for release validation only.
+This is the final verification checklist before promotion to v0.1.0. RC8 keeps the validated UI, melodies and one-shot timing stable while ensuring every built-in sound has a deliberate inter-execution pause for repeat/loop playback.
 
 ## 1. Host regression tests
 
@@ -36,7 +36,7 @@ Compile the intended WLED release target with this usermod enabled. Record:
 - Arduino-ESP32 version;
 - build result and any warning attributable to the usermod.
 
-Confirm that the firmware contains `0.1.0` and `rc.6` and that **Config -> Usermods -> Buzzer** is available.
+Confirm that the firmware contains `0.1.0` and `rc.8` and that **Config -> Usermods -> Buzzer** is available.
 
 ## 3. Configuration UI gate
 
@@ -56,7 +56,7 @@ The real WLED page must match the validated RC5 screenshot. Confirm:
 
 ## 4. Built-in sound regression
 
-The following 15 sound definitions are hardware-qualified and frozen:
+The following 15 sound IDs remain the qualified registry:
 
 - `beep`
 - `double_beep`
@@ -74,7 +74,12 @@ The following 15 sound definitions are hardware-qualified and frozen:
 - `attention`
 - `alarm`
 
-Perform a short passive-buzzer regression and a short active-buzzer regression. Do not retune sounds unless a genuine regression is found.
+Perform a short passive-buzzer regression and a short active-buzzer regression. For repeat/loop separation, verify at least `beep`, `triple_beep`, one melody (for example `victory`), and `alarm`; also verify `triple_beep` specifically:
+
+- one-shot playback still sounds as the original three 90 ms pulses with 70 ms internal gaps and no audible tail delay;
+- repeat/loop playback inserts approximately 550 ms of silence between complete three-pulse groups.
+
+Do not retune any other sound unless a genuine regression is found.
 
 ## 5. HTTP API positive tests
 
@@ -179,4 +184,4 @@ wled-usermod-buzzer/
 
 ## Promotion rule
 
-Promote RC5 to **v0.1.0** only after the intended WLED target build, minimal active/passive hardware regression, API regression, resource/reconfiguration checks, and real C++ consumer integration all pass without requiring functional changes.
+Promote RC8 to **v0.1.0** only after the intended WLED target build, minimal active/passive hardware regression, API regression, resource/reconfiguration checks, and real C++ consumer integration all pass without requiring functional changes.

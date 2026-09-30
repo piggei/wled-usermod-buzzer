@@ -1,3 +1,19 @@
+## v0.1.0-rc.8
+
+- Generalized the RC7 trailing-gap policy to all 15 built-in sounds.
+- Every built-in sound now has a non-zero final `gapMs` used only between complete executions during `repeat` or `loop` playback.
+- One-shot playback is audibly unchanged because `BuzzerEngine` skips the final gap when no following execution exists.
+- Existing validated final gaps are preserved (`triple_beep` 550 ms, `victory` 100 ms, `alarm` 180 ms); zero-gap sounds receive a sound-appropriate inter-execution pause.
+- Added registry regression coverage requiring a non-zero final gap for every built-in sound.
+- No UI, note frequency, note duration, internal-note gap, API, bridge, engine, or hardware-backend changes.
+
+## v0.1.0-rc.7
+
+- Added a 550 ms trailing gap to `triple_beep` for finite-repeat and infinite-loop playback.
+- One-shot `triple_beep` remains audibly unchanged because the engine skips the final gap when no following execution exists.
+- This gives repeating consumers such as iDotMatrix Alarm a clean pause between three-pulse groups without adding timing logic to the consumer.
+- Kept the UI, playback engine, hardware backend, bridge API, sound IDs, and all other built-in sound definitions unchanged from RC6.
+
 ## v0.1.0-rc.6
 
 - Added a stable `extern "C"` bridge for optional consumer usermods.

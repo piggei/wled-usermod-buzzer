@@ -110,6 +110,40 @@ int main() {
   assert(repeatSink.transitions == 6u);
   assert(!repeated.playRepeat(loopSound, 5000000u, 0));
 
+  // Trailing-gap contract: a one-shot stops immediately at the end of the
+  // third pulse, while loop playback consumes the 550 ms trailing gap before
+  // restarting the first pulse.
+  const BuzzerSound* triple = BuzzerSounds::find("triple_beep");
+  assert(triple != nullptr);
+  Sink tripleOneShotSink;
+  BuzzerEngine tripleOneShot;
+  tripleOneShot.attach(&output, &tripleOneShotSink);
+  assert(tripleOneShot.play(*triple, 6000000u));
+  tripleOneShot.service(6090000u);  // first pulse ends
+  tripleOneShot.service(6160000u);  // second pulse starts
+  tripleOneShot.service(6250000u);  // second pulse ends
+  tripleOneShot.service(6320000u);  // third pulse starts
+  tripleOneShot.service(6410000u);  // third pulse ends; no following execution
+  assert(!tripleOneShot.isPlaying());
+  assert(!tripleOneShotSink.on);
+
+  Sink tripleLoopSink;
+  BuzzerEngine tripleLoop;
+  tripleLoop.attach(&output, &tripleLoopSink);
+  assert(tripleLoop.play(*triple, 7000000u, true));
+  tripleLoop.service(7090000u);
+  tripleLoop.service(7160000u);
+  tripleLoop.service(7250000u);
+  tripleLoop.service(7320000u);
+  tripleLoop.service(7410000u);  // third pulse ends; enter 550 ms trailing gap
+  assert(tripleLoop.isPlaying());
+  assert(!tripleLoopSink.on);
+  tripleLoop.service(7959999u);
+  assert(!tripleLoopSink.on);
+  tripleLoop.service(7960000u);  // first pulse of next execution
+  assert(tripleLoopSink.on);
+  assert(tripleLoopSink.frequency == 2000u);
+
   // Custom tones are one-shot and expose a stable synthetic sound ID.
   Sink toneSink;
   BuzzerEngine tone;

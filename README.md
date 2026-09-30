@@ -2,7 +2,7 @@
 
 Standalone active/passive buzzer service for WLED.
 
-**Release candidate: v0.1.0-rc.6**
+**Release candidate: v0.1.0-rc.8**
 
 ## Features
 
@@ -40,6 +40,8 @@ Standalone active/passive buzzer service for WLED.
 Passive buzzers reproduce note pitch and timing. Active buzzers ignore pitch and reproduce the timing/rhythm of the same sound definitions.
 
 All 15 built-in sounds have been explicitly validated on real passive-buzzer hardware; basic active-buzzer playback has also been validated on real hardware.
+
+RC8 generalizes the same repeat/loop separation policy to every built-in sound. Each sound has a non-zero final gap that is consumed only when another complete execution follows. One-shot playback therefore ends immediately after the final audible note, while `repeat` and `loop` playback get a deliberate pause between executions.
 
 ## Configuration
 
@@ -202,7 +204,7 @@ The service is out-of-tree and does not require a patch to WLED `const.h` or a r
 
 ### Optional consumer bridge
 
-RC6 also exports a small `extern "C"` bridge for usermods that must compile and link even when the Buzzer Usermod is not part of the firmware. A consumer can weak-link these symbols and detect their presence at runtime without including `WLEDBuzzerService.h`; this avoids PlatformIO LDF pulling the Buzzer repository into builds where it was not selected in `custom_usermods`.
+RC8 retains the small `extern "C"` bridge introduced in RC6 for usermods that must compile and link even when the Buzzer Usermod is not part of the firmware. A consumer can weak-link these symbols and detect their presence at runtime without including `WLEDBuzzerService.h`; this avoids PlatformIO LDF pulling the Buzzer repository into builds where it was not selected in `custom_usermods`.
 
 Exported bridge symbols are `wledBuzzerServiceReady()`, `wledBuzzerServicePlaying()`, `wledBuzzerServicePlay()`, `wledBuzzerServiceStop()`, and `wledBuzzerServiceCurrentSoundId()`.
 
@@ -232,7 +234,7 @@ The repository must be available at the path referenced by the PlatformIO enviro
 
 ## Scope and limitations
 
-- v0.1.0-rc.6 targets ESP32-family WLED builds.
+- v0.1.0-rc.8 targets ESP32-family WLED builds.
 - If the engine mutex cannot be created, playback is disabled rather than exposing an unsafe asynchronous fallback.
 - Passive playback requires LEDC resources.
 - Active buzzers reproduce rhythm only; they cannot reproduce melody pitch.
@@ -252,6 +254,6 @@ This allows update/build scripts to consume subsequent archives without version-
 
 ## Release status
 
-This is **v0.1.0-rc.6**, a compatibility follow-up to RC5. The user interface and all 15 built-in sound definitions remain frozen. RC6 adds only the optional weak-link consumer bridge; the playback engine, hardware backend and sound registry are unchanged.
+This is **v0.1.0-rc.8**. It keeps the validated RC7 runtime behavior and generalizes trailing inter-execution pauses to all built-in sounds. One-shot playback remains audibly unchanged; finite-repeat and infinite-loop playback now always separate complete sound executions. The UI, playback engine, hardware backend, public APIs, sound IDs, note frequencies, note durations, and internal note timing are unchanged.
 
 Before promotion to **v0.1.0**, complete the final target build/hardware regression and the real C++ consumer integration described in `TESTING.md`.
