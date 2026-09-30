@@ -27,7 +27,7 @@ const char CFG_OLD_VOLUME[] PROGMEM = "passiveVolume";
 const char CFG_OLD_SOUND[] PROGMEM = "testSound";
 
 constexpr const char* BUZZER_VERSION = "0.1.0";
-constexpr const char* BUZZER_BUILD = "rc.8";
+constexpr const char* BUZZER_BUILD = "final";
 constexpr uint16_t DEFAULT_TONE_HZ = 1000u;
 constexpr uint16_t DEFAULT_BEEP_MS = 120u;
 constexpr uint16_t MAX_TONE_HZ = 20000u;

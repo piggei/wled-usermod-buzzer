@@ -1,3 +1,20 @@
+## v0.1.0
+
+- First stable release.
+- Promoted the fully qualified RC9 runtime without functional changes.
+- Includes active/passive buzzer support, 15 built-in sounds, finite repeat and infinite loop playback, strict HTTP/JSON control, C++ service API, and the optional weak-link consumer bridge.
+- Release qualification completed on real hardware for passive and active buzzer playback, all built-in sounds, repeat/loop behavior, and iDotMatrix consumer integration.
+- Updated source and wiki documentation from release-candidate wording to the stable v0.1.0 baseline.
+
+## v0.1.0-rc.9
+
+- Final verification candidate before v0.1.0.
+- Kept runtime behavior, UI, sound registry, note timing, final repeat/loop gaps, APIs, hardware backend, and optional consumer bridge unchanged from RC8.
+- Recorded successful real-world integration with iDotMatrix as an external buzzer-service consumer.
+- Recorded completed active/passive hardware, built-in sound, repeat/loop, and API qualification from the RC cycle.
+- Updated release documentation and final verification checklist.
+- Removed redundant H1 page headings from the distributed GitHub Wiki sources because GitHub renders page titles automatically.
+
 ## v0.1.0-rc.8
 
 - Generalized the RC7 trailing-gap policy to all 15 built-in sounds.

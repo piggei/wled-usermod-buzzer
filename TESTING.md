@@ -1,6 +1,8 @@
-# WLED Buzzer Usermod - v0.1.0-rc.8 test plan
+# WLED Buzzer Usermod - v0.1.0 release regression plan
 
-This is the final verification checklist before promotion to v0.1.0. RC8 keeps the validated UI, melodies and one-shot timing stable while ensuring every built-in sound has a deliberate inter-execution pause for repeat/loop playback.
+This is the release regression checklist for v0.1.0. The final release promotes the qualified RC9 runtime unchanged: UI, sounds, note timing, repeat/loop gaps, APIs, hardware behavior and the consumer bridge are identical to the final candidate.
+
+Already qualified during the RC cycle: all 15 built-in sounds on passive hardware, active-buzzer playback, finite repeat, infinite loop, HTTP API operation, and real consumer integration through iDotMatrix.
 
 ## 1. Host regression tests
 
@@ -36,7 +38,7 @@ Compile the intended WLED release target with this usermod enabled. Record:
 - Arduino-ESP32 version;
 - build result and any warning attributable to the usermod.
 
-Confirm that the firmware contains `0.1.0` and `rc.8` and that **Config -> Usermods -> Buzzer** is available.
+Confirm that the firmware contains `0.1.0` and `final` and that **Config -> Usermods -> Buzzer** is available.
 
 ## 3. Configuration UI gate
 
@@ -166,7 +168,7 @@ Use a real second usermod to exercise `WLEDBuzzerService`:
 - `currentSoundId()`;
 - behavior when the service is absent or not ready.
 
-The planned iDotMatrix migration is the intended real-world consumer test.
+This gate has already passed with the real iDotMatrix migration. Re-run a minimal consumer smoke test in RC9 to confirm no packaging or versioning regression.
 
 ## 11. Package gate
 
@@ -184,4 +186,4 @@ wled-usermod-buzzer/
 
 ## Promotion rule
 
-Promote RC8 to **v0.1.0** only after the intended WLED target build, minimal active/passive hardware regression, API regression, resource/reconfiguration checks, and real C++ consumer integration all pass without requiring functional changes.
+Promote RC9 to **v0.1.0** when the final intended WLED target build, minimal active/passive hardware regression, API regression, resource/reconfiguration checks, and iDotMatrix consumer smoke test all pass without requiring functional changes.

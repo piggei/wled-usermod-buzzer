@@ -9,7 +9,7 @@ sounds = (root / "BuzzerSounds.cpp").read_text(encoding="utf-8")
 
 for token in [
     'BUZZER_VERSION = "0.1.0"',
-    'BUZZER_BUILD = "rc.8"',
+    'BUZZER_BUILD = "final"',
     'PinManager::allocatePin(hardwarePin_, true, PinOwner::UM_Unspecified)',
     'PinManager::allocateLedc(1)',
     'PinManager::deallocateLedc(ledcChannel_, 1)',
@@ -39,7 +39,7 @@ for sound in [
 ]:
     assert f"`{sound}`" in readme, sound
 
-assert '"version": "0.1.0-rc.8"' in library
+assert '"version": "0.1.0"' in library
 assert "iDotMatrix" not in usermod
 assert "IDotMatrix" not in usermod
 assert "delay(" not in usermod
@@ -106,7 +106,7 @@ for token in [
     assert token in sounds, token
 
 # Release hardening and UI regression checks.
-assert 'BUZZER_BUILD = "rc.8"' in usermod
+assert 'BUZZER_BUILD = "final"' in usermod
 assert '#include "BuzzerInput.h"' in usermod
 assert 'BuzzerInput::parseUnsignedDecimal' in usermod
 assert 'BuzzerInput::parseBooleanText' in usermod
