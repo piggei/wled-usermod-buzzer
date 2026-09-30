@@ -2,6 +2,7 @@
 #include "BuzzerEngine.h"
 #include "BuzzerSounds.h"
 #include "BuzzerInput.h"
+#include "BuzzerSchedule.h"
 #include "WLEDBuzzerService.h"
 
 #if defined(ARDUINO_ARCH_ESP32)
@@ -19,6 +20,9 @@ const char CFG_TYPE[] PROGMEM = "type";
 const char CFG_TRIGGER[] PROGMEM = "trigger";
 const char CFG_VOLUME[] PROGMEM = "volume";
 const char CFG_SOUND[] PROGMEM = "sound";
+const char CFG_NIGHT_MODE[] PROGMEM = "nightMode";
+const char CFG_NIGHT_FROM[] PROGMEM = "nightFrom";
+const char CFG_NIGHT_TO[] PROGMEM = "nightTo";
 // b001 configuration aliases, accepted on read for migration only.
 const char CFG_OLD_TYPE[] PROGMEM = "buzzerType";
 const char CFG_OLD_ACTIVE_HIGH[] PROGMEM = "activeHigh";
@@ -26,8 +30,8 @@ const char CFG_OLD_PASSIVE_TRIGGER[] PROGMEM = "passiveTrigger";
 const char CFG_OLD_VOLUME[] PROGMEM = "passiveVolume";
 const char CFG_OLD_SOUND[] PROGMEM = "testSound";
 
-constexpr const char* BUZZER_VERSION = "0.1.0";
-constexpr const char* BUZZER_BUILD = "final";
+constexpr const char* BUZZER_VERSION = "0.2.0";
+constexpr const char* BUZZER_BUILD = "dev-b002";
 constexpr uint16_t DEFAULT_TONE_HZ = 1000u;
 constexpr uint16_t DEFAULT_BEEP_MS = 120u;
 constexpr uint16_t MAX_TONE_HZ = 20000u;
@@ -81,6 +85,12 @@ private:
   uint8_t trigger_ = TRIGGER_HIGH;
   uint8_t volume_ = 100;
   String sound_ = "victory";
+  bool nightMode_ = false;
+  String nightFrom_ = "23:00";
+  String nightTo_ = "07:00";
+  uint16_t nightFromMinutes_ = 23u * 60u;
+  uint16_t nightToMinutes_ = 7u * 60u;
+  bool nightMuted_ = false;
 
   bool setupComplete_ = false;
   bool pinAllocated_ = false;
@@ -313,6 +323,22 @@ private:
     );
   }
 
+  bool hasValidLocalTime() const {
+    // Avoid muting from the Unix epoch before WLED has acquired meaningful time.
+    return localTime >= static_cast<time_t>(1577836800); // 2020-01-01 UTC baseline
+  }
+
+  bool isNightMutedNow() const {
+    if (!nightMode_) return false;
+    const bool timeValid = hasValidLocalTime();
+    const uint16_t currentMinute = timeValid
+      ? static_cast<uint16_t>(hour(localTime)) * 60u + static_cast<uint16_t>(minute(localTime))
+      : 0u;
+    return BuzzerSchedule::isMutedAtMinute(
+      nightMode_, timeValid, currentMinute, nightFromMinutes_, nightToMinutes_
+    );
+  }
+
   bool canPlay() const {
 #if defined(ARDUINO_ARCH_ESP32)
     if (!engineThreadSafe_) return false;
@@ -320,15 +346,19 @@ private:
     return enabled_ && hardwareReady_ && !pinUnavailable_ && hardwarePin_ >= 0;
   }
 
+  bool playbackAllowed() const {
+    return canPlay() && !isNightMutedNow();
+  }
+
   bool playSound(const char* soundId, bool loop) {
-    if (!canPlay()) return false;
+    if (!playbackAllowed()) return false;
     const BuzzerSound* sound = BuzzerSounds::find(soundId);
     if (sound == nullptr) return false;
     return engine_.play(*sound, nowUs(), loop);
   }
 
   bool playSoundRepeat(const char* soundId, uint16_t repeatCount) {
-    if (!canPlay() || repeatCount == 0) return false;
+    if (!playbackAllowed() || repeatCount == 0) return false;
     const BuzzerSound* sound = BuzzerSounds::find(soundId);
     if (sound == nullptr) return false;
     return engine_.playRepeat(*sound, nowUs(), repeatCount);
@@ -375,7 +405,7 @@ private:
   void sendStatus(AsyncWebServerRequest* request) const {
     const BuzzerEngine::Snapshot snapshot = engine_.snapshot();
     String body;
-    body.reserve(240);
+    body.reserve(360);
     body += F("{\"version\":\"");
     body += BUZZER_VERSION;
     body += F("\",\"build\":\"");
@@ -384,7 +414,15 @@ private:
     body += enabled_ ? F("true") : F("false");
     body += F(",\"ready\":");
     body += canPlay() ? F("true") : F("false");
-    body += F(",\"playing\":");
+    body += F(",\"muted\":");
+    body += isNightMutedNow() ? F("true") : F("false");
+    body += F(",\"nightMode\":");
+    body += nightMode_ ? F("true") : F("false");
+    body += F(",\"nightFrom\":\"");
+    body += nightFrom_;
+    body += F("\",\"nightTo\":\"");
+    body += nightTo_;
+    body += F("\",\"playing\":");
     body += snapshot.playing ? F("true") : F("false");
     body += F(",\"sound\":\"");
     body += snapshot.soundId;
@@ -438,6 +476,10 @@ private:
           request->send(409, FPSTR(CONTENT_TYPE_PLAIN), F("Buzzer hardware is not ready."));
           return;
         }
+        if (isNightMutedNow()) {
+          request->send(423, FPSTR(CONTENT_TYPE_PLAIN), F("Buzzer muted by night mode."));
+          return;
+        }
         if (BuzzerSounds::find(soundId.c_str()) == nullptr) {
           request->send(404, FPSTR(CONTENT_TYPE_PLAIN), F("Unknown buzzer sound."));
           return;
@@ -484,6 +526,10 @@ private:
           request->send(400, FPSTR(CONTENT_TYPE_PLAIN), F("duration must be an integer between 1 and 60000 ms."));
           return;
         }
+        if (isNightMutedNow()) {
+          request->send(423, FPSTR(CONTENT_TYPE_PLAIN), F("Buzzer muted by night mode."));
+          return;
+        }
         if (!tone(static_cast<uint16_t>(frequency), static_cast<uint16_t>(duration))) {
           request->send(409, FPSTR(CONTENT_TYPE_PLAIN), F("Buzzer hardware is not ready."));
           return;
@@ -502,6 +548,10 @@ private:
         const ParseResult frequencyResult = parseUnsignedParam(request, "frequency", 20u, MAX_TONE_HZ, frequency);
         if (frequencyResult == ParseResult::Invalid) {
           request->send(400, FPSTR(CONTENT_TYPE_PLAIN), F("frequency must be an integer between 20 and 20000 Hz."));
+          return;
+        }
+        if (isNightMutedNow()) {
+          request->send(423, FPSTR(CONTENT_TYPE_PLAIN), F("Buzzer muted by night mode."));
           return;
         }
         if (!beep(static_cast<uint16_t>(duration), static_cast<uint16_t>(frequency))) {
@@ -533,6 +583,11 @@ public:
 
   void loop() override {
     if (!enabled_) return;
+
+    const bool mutedNow = isNightMutedNow();
+    if (mutedNow && !nightMuted_ && engine_.isPlaying()) stopPlayback();
+    nightMuted_ = mutedNow;
+
 #if defined(ARDUINO_ARCH_ESP32)
     if (engineThreadSafe_ && !serviceTimerRunning_) engine_.service(nowUs());
 #else
@@ -549,12 +604,12 @@ public:
   }
 
   bool beep(uint16_t durationMs = DEFAULT_BEEP_MS, uint16_t frequencyHz = DEFAULT_TONE_HZ) override {
-    if (!canPlay()) return false;
+    if (!playbackAllowed()) return false;
     return engine_.playTone(clampFrequency(frequencyHz), clampDuration(durationMs), nowUs(), "beep");
   }
 
   bool tone(uint16_t frequencyHz, uint16_t durationMs) override {
-    if (!canPlay()) return false;
+    if (!playbackAllowed()) return false;
     return engine_.playTone(clampFrequency(frequencyHz), clampDuration(durationMs), nowUs(), "tone");
   }
 
@@ -590,8 +645,14 @@ public:
 #endif
     else if (pinUnavailable_) state.add(F("GPIO unavailable"));
     else if (!hardwareReady_) state.add(F("not ready"));
+    else if (isNightMutedNow()) state.add(F("muted by night mode"));
     else if (snapshot.playing) state.add(String(F("playing ")) + snapshot.soundId);
     else state.add(F("idle"));
+
+    JsonArray night = user.createNestedArray(F("Buzzer night mode"));
+    if (!nightMode_) night.add(F("disabled"));
+    else if (!hasValidLocalTime()) night.add(String(nightFrom_) + F("-") + nightTo_ + F(" (waiting for valid time)"));
+    else night.add(String(nightFrom_) + F("-") + nightTo_ + (isNightMutedNow() ? F(" (muted)") : F(" (active)")));
 
 #if defined(ARDUINO_ARCH_ESP32)
     JsonArray timing = user.createNestedArray(F("Buzzer timing"));
@@ -604,6 +665,10 @@ public:
     const BuzzerEngine::Snapshot snapshot = engine_.snapshot();
     JsonObject state = root.createNestedObject(FPSTR(JSON_KEY));
     state["ready"] = canPlay();
+    state["muted"] = isNightMutedNow();
+    state["nightMode"] = nightMode_;
+    state["nightFrom"] = nightFrom_;
+    state["nightTo"] = nightTo_;
     state["playing"] = snapshot.playing;
     state["sound"] = snapshot.soundId;
     state["loop"] = snapshot.looping;
@@ -696,6 +761,9 @@ public:
     config[FPSTR(CFG_TYPE)] = buzzerType_;
     config[FPSTR(CFG_TRIGGER)] = trigger_;
     config[FPSTR(CFG_VOLUME)] = volume_;
+    config[FPSTR(CFG_NIGHT_MODE)] = nightMode_;
+    config[FPSTR(CFG_NIGHT_FROM)] = nightFrom_;
+    config[FPSTR(CFG_NIGHT_TO)] = nightTo_;
     config[FPSTR(CFG_SOUND)] = sound_;
   }
 
@@ -728,6 +796,29 @@ public:
 
     if (!config[FPSTR(CFG_VOLUME)].isNull()) getJsonValue(config[FPSTR(CFG_VOLUME)], volume_, uint8_t(100));
     else complete &= getJsonValue(config[FPSTR(CFG_OLD_VOLUME)], volume_, uint8_t(100));
+
+    // Night Mode settings were introduced in v0.2.0. Missing keys migrate silently
+    // from v0.1.0 defaults instead of marking the whole usermod config incomplete.
+    getJsonValue(config[FPSTR(CFG_NIGHT_MODE)], nightMode_, false);
+    getJsonValue(config[FPSTR(CFG_NIGHT_FROM)], nightFrom_, String("23:00"));
+    getJsonValue(config[FPSTR(CFG_NIGHT_TO)], nightTo_, String("07:00"));
+    uint16_t parsedNightFrom = 0;
+    uint16_t parsedNightTo = 0;
+    if (!BuzzerSchedule::parseClockHHMM(nightFrom_.c_str(), parsedNightFrom)) {
+      nightFrom_ = "23:00";
+      parsedNightFrom = 23u * 60u;
+      complete = false;
+    }
+    if (!BuzzerSchedule::parseClockHHMM(nightTo_.c_str(), parsedNightTo)) {
+      nightTo_ = "07:00";
+      parsedNightTo = 7u * 60u;
+      complete = false;
+    }
+    nightFromMinutes_ = parsedNightFrom;
+    nightToMinutes_ = parsedNightTo;
+    const bool mutedAfterConfig = isNightMutedNow();
+    if (setupComplete_ && mutedAfterConfig && engine_.isPlaying()) stopPlayback();
+    nightMuted_ = mutedAfterConfig;
 
     if (!config[FPSTR(CFG_SOUND)].isNull()) getJsonValue(config[FPSTR(CFG_SOUND)], sound_, String("victory"));
     else complete &= getJsonValue(config[FPSTR(CFG_OLD_SOUND)], sound_, String("victory"));
@@ -768,9 +859,12 @@ public:
     oappend(F("addInfo('Buzzer:type',1,'');"));
     oappend(F("addInfo('Buzzer:trigger',1,'');"));
     oappend(F("addInfo('Buzzer:volume',1,'<br><i style=\"color:#fa0\">Active buzzers reproduce rhythm only. Passive buzzers reproduce note pitch.</i>');"));
+    oappend(F("addInfo('Buzzer:nightMode',1,'');"));
+    oappend(F("addInfo('Buzzer:nightFrom',1,'');"));
+    oappend(F("addInfo('Buzzer:nightTo',1,'');"));
     oappend(F("addInfo('Buzzer:sound',1,'');"));
 
-    oappend(F("setTimeout(()=>{d.querySelectorAll('hr').forEach(e=>{let b=e.getBoundingClientRect();if(b.top<220&&b.width>innerWidth*.7)e.style.display='none'});let q=k=>{let a=d.getElementsByName('Buzzer:'+k);return a[a.length-1]},L=(e,x)=>{if(!e)return;let n=e.previousSibling;while(n&&n.nodeName!='BR'){if(n.nodeType==3&&n.data.trim()){n.data=x+' ';return}n=n.previousSibling}},w=e=>{if(!e)return;let b=e;while(b.previousSibling&&b.previousSibling.nodeName!='BR')b=b.previousSibling;let x=d.createElement('span');b.before(x);while(x.nextSibling){let n=x.nextSibling;x.append(n);if(n.nodeName=='BR')break}return x},e=q('enabled'),p=q('pin'),t=q('type'),g=q('trigger'),r=q('volume'),s=q('sound'),V=w(r);L(e,'Enabled:');L(p,'GPIO Pin:');L(t,'Buzzer Type:');L(g,'Trigger level:');L(s,'Sound:');if(V&&V.firstChild)V.firstChild.data='Volume: ';if(r){r.type='range';r.min=0;r.max=100;r.style.width='170px';let n=d.createElement('span'),u=()=>n.textContent=r.value+'%';r.after(n);r.oninput=u;u()}if(s){let f=u=>fetch(u).then(async x=>{if(!x.ok)alert(await x.text())}),p=d.createElement('button'),z=d.createElement('button');p.type=z.type='button';p.textContent='Play';z.textContent='Stop';p.onclick=()=>f('/buzzer?play='+encodeURIComponent(s.value));z.onclick=()=>f('/buzzer?stop=1');s.after(p);p.after(z);let n=d.createElement('div');n.style='margin:8px 0;color:#fa0';n.innerHTML='<i>Save the configuration before testing hardware changes.</i>';z.after(n);let h=d.createElement('label'),c=d.createElement('input');h.style='display:block;margin:16px 0 8px';c.type='checkbox';h.append(c,d.createTextNode(' Show API commands'));n.after(h);let a=d.createElement('div');a.hidden=true;a.innerHTML='<b>Web API</b><br>Play selected sound:<br><code id=\"bzurl\"></code><br>Loop a sound:<br><code id=\"bzloop\"></code><br>Stop:<br><code>'+location.origin+'/buzzer?stop=1</code><br>Tone:<br><code>'+location.origin+'/buzzer?tone=1000&duration=200</code><br>Beep:<br><code>'+location.origin+'/buzzer?beep=150</code>';h.after(a);c.onchange=()=>a.hidden=!c.checked;let U=()=>{let u=location.origin+'/buzzer?play='+s.value;d.getElementById('bzurl').textContent=u;d.getElementById('bzloop').textContent=u+'&loop=1'};s.onchange=U;U()}let H=()=>{if(V)V.hidden=!(t&&t.value==1)};if(t){t.onchange=H;H()}},0);"));
+    oappend(F("setTimeout(()=>{d.querySelectorAll('hr').forEach(e=>{let b=e.getBoundingClientRect();if(b.top<220&&b.width>innerWidth*.7)e.style.display='none'});let q=k=>{let a=d.getElementsByName('Buzzer:'+k);return a[a.length-1]},L=(e,x)=>{if(!e)return;let n=e.previousSibling;while(n&&n.nodeName!='BR'){if(n.nodeType==3&&n.data.trim()){n.data=x+' ';return}n=n.previousSibling}},w=e=>{if(!e)return;let b=e;while(b.previousSibling&&b.previousSibling.nodeName!='BR')b=b.previousSibling;let x=d.createElement('span');b.before(x);while(x.nextSibling){let n=x.nextSibling;x.append(n);if(n.nodeName=='BR')break}return x},e=q('enabled'),p=q('pin'),t=q('type'),g=q('trigger'),r=q('volume'),m=q('nightMode'),f0=q('nightFrom'),f1=q('nightTo'),s=q('sound'),V=w(r),N0=w(f0),N1=w(f1);L(e,'Enabled:');L(p,'GPIO Pin:');L(t,'Buzzer Type:');L(g,'Trigger level:');L(m,'Night mode:');L(f1,'To:');L(s,'Sound:');if(V&&V.firstChild)V.firstChild.data='Volume: ';if(N0&&N0.firstChild)N0.firstChild.data='From: ';if(N1&&N1.firstChild)N1.firstChild.data='To: ';if(f0)f0.type='time';if(f1)f1.type='time';if(r){r.type='range';r.min=0;r.max=100;r.style.width='170px';let n=d.createElement('span'),u=()=>n.textContent=r.value+'%';r.after(n);r.oninput=u;u()}if(s){let f=u=>fetch(u).then(async x=>{if(!x.ok)alert(await x.text())}),p=d.createElement('button'),z=d.createElement('button');p.type=z.type='button';p.textContent='Play';z.textContent='Stop';p.onclick=()=>f('/buzzer?play='+encodeURIComponent(s.value));z.onclick=()=>f('/buzzer?stop=1');s.after(p);p.after(z);let n=d.createElement('div');n.style='margin:8px 0;color:#fa0';n.innerHTML='<i>Save the configuration before testing hardware changes.</i>';z.after(n);let h=d.createElement('label'),c=d.createElement('input');h.style='display:block;margin:16px 0 8px';c.type='checkbox';h.append(c,d.createTextNode(' Show API commands'));n.after(h);let a=d.createElement('div');a.hidden=true;a.innerHTML='<b>Web API</b><br>Play selected sound:<br><code id=\"bzurl\"></code><br>Loop a sound:<br><code id=\"bzloop\"></code><br>Stop:<br><code>'+location.origin+'/buzzer?stop=1</code><br>Tone:<br><code>'+location.origin+'/buzzer?tone=1000&duration=200</code><br>Beep:<br><code>'+location.origin+'/buzzer?beep=150</code>';h.after(a);c.onchange=()=>a.hidden=!c.checked;let U=()=>{let u=location.origin+'/buzzer?play='+s.value;d.getElementById('bzurl').textContent=u;d.getElementById('bzloop').textContent=u+'&loop=1'};s.onchange=U;U()}let H=()=>{if(V)V.hidden=!(t&&t.value==1)};if(t){t.onchange=H;H()}let N=()=>{let v=!!(m&&m.checked);if(N0)N0.hidden=!v;if(N1)N1.hidden=!v};if(m){m.onchange=N;N()}},0);"));
   }
 };
 

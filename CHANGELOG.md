@@ -1,3 +1,19 @@
+## v0.2.0-dev-b002
+
+- UI-only follow-up to dev-b001.
+- Fixed the Night Mode end-time label so it is rendered as `To:` instead of `NightTo`.
+- No changes to Night Mode behavior, C bridge, sound library, playback engine, APIs, or existing validated UI controls.
+
+## v0.2.0-dev-b001
+
+- Added configurable Night Mode with `From`/`To` daily quiet times; the time fields are shown only while Night Mode is enabled.
+- Night Mode uses WLED local time, supports intervals crossing midnight, and leaves playback enabled when local time is not yet valid.
+- Playback already running when the quiet interval begins is stopped and does not automatically resume.
+- Added Night Mode diagnostics to `/buzzer`, `/json/info`, and `/json/state`.
+- Completed the optional weak-link C bridge with `playRepeat`, `beep`, and `tone` functions in addition to the existing play/status/stop functions.
+- Added host tests for time parsing, same-day/overnight/full-day quiet intervals, and the complete C bridge.
+- Kept the v0.1.0 sound registry, note timing, repeat/loop gaps, and existing active/passive UI behavior unchanged.
+
 ## v0.1.0
 
 - First stable release.

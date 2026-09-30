@@ -8,8 +8,8 @@ library = (root / "library.json").read_text(encoding="utf-8")
 sounds = (root / "BuzzerSounds.cpp").read_text(encoding="utf-8")
 
 for token in [
-    'BUZZER_VERSION = "0.1.0"',
-    'BUZZER_BUILD = "final"',
+    'BUZZER_VERSION = "0.2.0"',
+    'BUZZER_BUILD = "dev-b002"',
     'PinManager::allocatePin(hardwarePin_, true, PinOwner::UM_Unspecified)',
     'PinManager::allocateLedc(1)',
     'PinManager::deallocateLedc(ledcChannel_, 1)',
@@ -39,7 +39,7 @@ for sound in [
 ]:
     assert f"`{sound}`" in readme, sound
 
-assert '"version": "0.1.0"' in library
+assert '"version": "0.2.0-dev-b002"' in library
 assert "iDotMatrix" not in usermod
 assert "IDotMatrix" not in usermod
 assert "delay(" not in usermod
@@ -106,7 +106,7 @@ for token in [
     assert token in sounds, token
 
 # Release hardening and UI regression checks.
-assert 'BUZZER_BUILD = "final"' in usermod
+assert 'BUZZER_BUILD = "dev-b002"' in usermod
 assert '#include "BuzzerInput.h"' in usermod
 assert 'BuzzerInput::parseUnsignedDecimal' in usermod
 assert 'BuzzerInput::parseBooleanText' in usermod
@@ -146,19 +146,41 @@ assert "addInfo('Buzzer:enabled',1,'<style>" in usermod
 assert "addInfo('Buzzer:enabled',1,'<style>.sec:has([name=\"Buzzer:enabled\"])>hr{display:none}</style>','Enabled:')" not in usermod
 assert "addInfo('Buzzer:pin',1,'','GPIO:')" not in usermod
 assert "addInfo('Buzzer:sound',1,'','Sound:')" not in usermod
-assert (root / "docs" / "wled-buzzer-usermod-gui.png").exists()
-assert "docs/wled-buzzer-usermod-gui.png" in readme
+assert "docs/wled-buzzer-usermod-gui.png" not in readme
 
-print("Static regression checks passed.")
 # RC6 optional-consumer bridge contract.
 service_h = (root / "WLEDBuzzerService.h").read_text(encoding="utf-8")
 service_cpp = (root / "WLEDBuzzerService.cpp").read_text(encoding="utf-8")
 for token in [
     "wledBuzzerServiceReady", "wledBuzzerServicePlaying",
-    "wledBuzzerServicePlay", "wledBuzzerServiceStop",
-    "wledBuzzerServiceCurrentSoundId",
+    "wledBuzzerServicePlay", "wledBuzzerServicePlayRepeat",
+    "wledBuzzerServiceBeep", "wledBuzzerServiceTone",
+    "wledBuzzerServiceStop", "wledBuzzerServiceCurrentSoundId",
 ]:
     assert token in service_h, token
     assert token in service_cpp, token
 assert 'extern "C"' in service_h
 
+
+
+# v0.2.0-dev-b002 Night Mode contract.
+schedule = (root / "BuzzerSchedule.h").read_text(encoding="utf-8")
+for token in [
+    'CFG_NIGHT_MODE[] PROGMEM = "nightMode"',
+    'CFG_NIGHT_FROM[] PROGMEM = "nightFrom"',
+    'CFG_NIGHT_TO[] PROGMEM = "nightTo"',
+    'nightFrom_ = "23:00"', 'nightTo_ = "07:00"',
+    'BuzzerSchedule::isMutedAtMinute', 'Buzzer muted by night mode.',
+    'state["muted"] = isNightMutedNow();',
+    'state.add(F("muted by night mode"))',
+    "L(m,'Night mode:')", "N0.firstChild.data='From: '", "L(f1,'To:')",
+    "if(f0)f0.type='time'", "if(f1)f1.type='time'",
+    'if(N0)N0.hidden=!v', 'if(N1)N1.hidden=!v',
+    'if (setupComplete_ && mutedAfterConfig && engine_.isPlaying()) stopPlayback();',
+]:
+    assert token in usermod, token
+assert 'parseClockHHMM' in schedule
+assert 'startMinute == endMinute' in schedule
+assert (root / "tests" / "test_night_mode.cpp").exists()
+
+print("Static regression checks passed.")

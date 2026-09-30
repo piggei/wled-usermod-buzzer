@@ -2,7 +2,7 @@
 
 Standalone active/passive buzzer service for WLED.
 
-**Release: v0.1.0**
+**Development build: v0.2.0-dev-b002**
 
 ## Features
 
@@ -18,6 +18,8 @@ Standalone active/passive buzzer service for WLED.
 - HTTP/Webhook API, WLED JSON API, and reusable C++ service API.
 - One-shot, finite-repeat, and infinite-loop playback modes.
 - Timing diagnostics through WLED JSON info.
+- Configurable Night Mode with daily quiet interval and automatic mute at the configured boundary.
+- Complete optional weak-link C bridge matching the C++ playback operations.
 
 ## Built-in sounds
 
@@ -52,11 +54,15 @@ Open **Config -> Usermods -> Buzzer** and configure:
 - **Buzzer Type:** Active / Passive
 - **Trigger level:** High / Low
 - **Volume:** 0-100 slider, passive only
+- **Night mode:** enable/disable the daily quiet interval
+- **From / To:** quiet-period boundaries; these fields are shown only when Night Mode is enabled
 - **Sound:** built-in sound used by the Play test control
 
 Save the configuration before testing after changing hardware settings.
 
-![WLED Buzzer Usermod configuration](docs/wled-buzzer-usermod-gui.png)
+Night Mode uses WLED local time. If WLED does not yet have valid time, Night Mode does not mute playback. Intervals that cross midnight are supported (for example `23:00` -> `07:00`). If `From` and `To` are equal while Night Mode is enabled, the buzzer is muted for the full day.
+
+If playback is already active when the quiet interval begins, it is stopped and does not resume automatically when the interval ends. The configuration screenshot will be refreshed after hardware validation of the new Night Mode controls.
 
 ## HTTP API
 
@@ -165,7 +171,7 @@ Beep:
 
 For JSON playback, `repeat` accepts 1-255 and must not be combined with `loop`. An explicitly supplied `repeat: 0`, a value above 255, or a `loop` + `repeat` combination is ignored and does not start playback.
 
-The current state is exposed under `buzzer` in `/json/state`, including `ready`, `playing`, current sound, loop state, remaining repetitions, current note, note count, and current frequency.
+The current state is exposed under `buzzer` in `/json/state`, including `ready`, `muted`, Night Mode settings, `playing`, current sound, loop state, remaining repetitions, current note, note count, and current frequency.
 
 ## Internal C++ API
 
@@ -206,7 +212,20 @@ The service is out-of-tree and does not require a patch to WLED `const.h` or a r
 
 The small `extern "C"` optional-consumer bridge introduced during the RC cycle is retained for usermods that must compile and link even when the Buzzer Usermod is not part of the firmware. A consumer can weak-link these symbols and detect their presence at runtime without including `WLEDBuzzerService.h`; this avoids PlatformIO LDF pulling the Buzzer repository into builds where it was not selected in `custom_usermods`.
 
-Exported bridge symbols are `wledBuzzerServiceReady()`, `wledBuzzerServicePlaying()`, `wledBuzzerServicePlay()`, `wledBuzzerServiceStop()`, and `wledBuzzerServiceCurrentSoundId()`.
+Exported bridge symbols are:
+
+```cpp
+wledBuzzerServiceReady();
+wledBuzzerServicePlaying();
+wledBuzzerServicePlay(...);
+wledBuzzerServicePlayRepeat(...);
+wledBuzzerServiceBeep(...);
+wledBuzzerServiceTone(...);
+wledBuzzerServiceStop();
+wledBuzzerServiceCurrentSoundId();
+```
+
+The bridge is now symmetric with the C++ service playback operations while retaining optional weak-link usage.
 
 The optional bridge has been validated in a real consumer integration: iDotMatrix uses the standalone Buzzer Usermod for its sound playback while remaining buildable when the service is absent.
 
@@ -227,7 +246,8 @@ The repository must be available at the path referenced by the PlatformIO enviro
 `/json/info` reports:
 
 - usermod version/build;
-- `disabled` / `GPIO not configured` / `synchronization unavailable` / `GPIO unavailable` / `not ready` / `idle` / `playing <sound>` state;
+- `disabled` / `GPIO not configured` / `synchronization unavailable` / `GPIO unavailable` / `not ready` / `muted by night mode` / `idle` / `playing <sound>` state;
+- Night Mode interval and whether it is currently muted, active, disabled, or waiting for valid WLED time;
 - current sound while playing;
 - timing source (`esp_timer 2ms` or mutex-protected WLED loop fallback);
 - last and maximum scheduler lateness.
@@ -236,7 +256,7 @@ The repository must be available at the path referenced by the PlatformIO enviro
 
 ## Scope and limitations
 
-- v0.1.0 targets ESP32-family WLED builds.
+- v0.2.0 development currently targets ESP32-family WLED builds.
 - If the engine mutex cannot be created, playback is disabled rather than exposing an unsafe asynchronous fallback.
 - Passive playback requires LEDC resources.
 - Active buzzers reproduce rhythm only; they cannot reproduce melody pitch.
@@ -254,8 +274,8 @@ wled-usermod-buzzer/
 
 This allows update/build scripts to consume subsequent archives without version-specific directory names.
 
-## Release status
+## Development status
 
-This is **v0.1.0**, the first stable release of WLED Buzzer Usermod. Runtime behavior, UI, the 15-sound registry, note timing, final repeat/loop gaps, hardware backend, HTTP/JSON APIs, C++ service API, and optional consumer bridge are promoted unchanged from the qualified RC9 baseline.
+This is **v0.2.0-dev-b002**, the first development build after v0.1.0. It adds Night Mode and completes the optional weak-link C bridge. The validated v0.1.0 sound registry, note timing, repeat/loop gaps, active/passive backend, and existing UI controls are otherwise unchanged.
 
 The release qualification covered all 15 built-in sounds on passive hardware, active-buzzer playback, finite repeat and infinite loop behavior, HTTP API operation, and real consumer integration through iDotMatrix. `TESTING.md` remains the release-regression checklist for future maintenance.

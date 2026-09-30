@@ -1,176 +1,123 @@
-# WLED Buzzer Usermod - v0.1.0 release regression plan
+# WLED Buzzer Usermod - v0.2.0-dev-b002 test plan
 
-This is the release regression checklist for v0.1.0. The final release promotes the qualified RC9 runtime unchanged: UI, sounds, note timing, repeat/loop gaps, APIs, hardware behavior and the consumer bridge are identical to the final candidate.
-
-Already qualified during the RC cycle: all 15 built-in sounds on passive hardware, active-buzzer playback, finite repeat, infinite loop, HTTP API operation, and real consumer integration through iDotMatrix.
+This development build starts from the qualified v0.1.0 runtime and adds only Night Mode plus completion of the optional C bridge. The existing sound registry, note timing, final repeat/loop gaps and active/passive backend must not regress.
 
 ## 1. Host regression tests
 
-Run from the repository root:
+Run:
 
 ```bash
 ./run_host_tests.sh
 ```
 
-Also verify that the static test is independent of the current working directory:
+Also verify the static test from another directory:
 
 ```bash
 cd /tmp
 python3 /path/to/wled-usermod-buzzer/tests/test_static.py
 ```
 
-Expected result:
+Expected:
 
 ```text
 Static regression checks passed.
 All host tests passed.
 ```
 
-The host suite covers engine sequencing, scheduler jitter, finite repeat, infinite loop, custom tones, stop behavior, strict input parsing, and exact membership of the 15-sound registry.
+The host suite now also covers `HH:MM` parsing, same-day and overnight Night Mode intervals, equal-boundary full-day mute behavior, and all optional C bridge playback calls.
 
 ## 2. WLED build gate
 
-Compile the intended WLED release target with this usermod enabled. Record:
-
-- WLED version/commit;
-- PlatformIO environment;
-- MCU;
-- Arduino-ESP32 version;
-- build result and any warning attributable to the usermod.
-
-Confirm that the firmware contains `0.1.0` and `final` and that **Config -> Usermods -> Buzzer** is available.
+Compile the intended WLED target and confirm the firmware contains `0.2.0` and `dev-b002`.
 
 ## 3. Configuration UI gate
 
-The real WLED page must match the validated RC5 screenshot. Confirm:
+The validated v0.1.0 UI must remain unchanged except for the new Night Mode controls. Confirm:
 
-- no separator line directly below the **Buzzer** title;
-- `Enabled:` appears once;
-- `GPIO Pin:` appears once;
-- `Buzzer Type:` appears once;
-- `Trigger level:` appears once;
-- `Volume:` appears once and is visible only for Passive;
-- the active/passive explanatory text is displayed correctly;
-- `Sound:` appears once, followed by Play and Stop;
-- the save-before-test warning remains below the test controls;
-- **Show API commands** hides/shows the API examples;
-- selecting **Active** hides only the passive-only Volume row and its explanatory text.
+- no separator line below **Buzzer**;
+- existing labels remain `Enabled:`, `GPIO Pin:`, `Buzzer Type:`, `Trigger level:`, `Volume:`, and `Sound:`;
+- Active still hides only the passive Volume row and its explanatory text;
+- `Night mode:` appears once;
+- with Night Mode disabled, `From:` and `To:` are hidden;
+- enabling Night Mode shows `From:` and `To:` as time controls;
+- disabling it again immediately hides both fields;
+- Play/Stop, save warning and Show API commands remain unchanged.
 
-## 4. Built-in sound regression
+## 4. Night Mode behavior gate
 
-The following 15 sound IDs remain the qualified registry:
+Hardware checks already confirmed during dev-b001/dev-b002 testing:
 
-- `beep`
-- `double_beep`
-- `triple_beep`
-- `notification`
-- `success`
-- `victory`
-- `yankee_doodle`
-- `fail`
-- `star_wars`
-- `warning`
-- `error`
-- `connect`
-- `disconnect`
-- `attention`
-- `alarm`
+- while inside the configured quiet interval, disabling Night Mode restores playback immediately and re-enabling it mutes playback again;
+- Night Mode configuration persists across application/device reset.
 
-Perform a short passive-buzzer regression and a short active-buzzer regression. For repeat/loop separation, verify at least `beep`, `triple_beep`, one melody (for example `victory`), and `alarm`; also verify `triple_beep` specifically:
+Set WLED to a valid local time and test both interval forms:
 
-- one-shot playback still sounds as the original three 90 ms pulses with 70 ms internal gaps and no audible tail delay;
-- repeat/loop playback inserts approximately 550 ms of silence between complete three-pulse groups.
+- same day, for example `13:00 -> 14:00`;
+- across midnight, for example `23:00 -> 07:00`.
 
-Do not retune any other sound unless a genuine regression is found.
+Confirm:
 
-## 5. HTTP API positive tests
+- outside the interval, GUI/API/C++ playback works normally;
+- inside the interval, `play`, `repeat`, `loop`, `beep` and `tone` are blocked;
+- HTTP playback commands return `423 Buzzer muted by night mode.`;
+- Stop always remains available;
+- a sound/loop already playing when the quiet interval begins is stopped;
+- playback does not automatically resume when the quiet interval ends;
+- if WLED time is not yet valid, Night Mode does not mute playback;
+- equal `From` and `To` values intentionally mean full-day mute while Night Mode is enabled.
 
-Quote URLs containing `&` in Bash:
+## 5. Diagnostics gate
 
-```bash
-curl "http://<WLED-IP>/buzzer?play=victory"
-curl "http://<WLED-IP>/buzzer?play=alarm&repeat=3"
-curl "http://<WLED-IP>/buzzer?play=alarm&loop=1"
-curl "http://<WLED-IP>/buzzer?stop=1"
-curl "http://<WLED-IP>/buzzer?tone=1000&duration=200"
-curl "http://<WLED-IP>/buzzer?beep=150"
-curl "http://<WLED-IP>/buzzer?beep=150&frequency=2000"
-curl "http://<WLED-IP>/buzzer"
+Check `/buzzer`, `/json/info`, and `/json/state`.
+
+`/buzzer` and `/json/state` must expose Night Mode state and current `muted` status. `/json/info` may report:
+
+- `muted by night mode`;
+- Night Mode `disabled`;
+- configured interval with `(active)` or `(muted)`;
+- `(waiting for valid time)` if WLED has not acquired valid local time.
+
+`ready` remains the hardware/service readiness state; a Night Mode mute does not make the service unavailable.
+
+## 6. Complete optional C bridge gate
+
+In addition to the v0.1.0 bridge calls, verify:
+
+```cpp
+wledBuzzerServicePlayRepeat("alarm", 3);
+wledBuzzerServiceBeep(150, 1000);
+wledBuzzerServiceTone(1200, 200);
 ```
 
-Expected:
+The complete bridge surface is:
 
-- `repeat=3` produces exactly three total executions;
-- `loop=1` continues until Stop;
-- custom tone accepts 20-20000 Hz and 1-60000 ms;
-- beep accepts 1-60000 ms and an optional 20-20000 Hz frequency;
-- status is internally coherent.
+- `wledBuzzerServiceReady()`;
+- `wledBuzzerServicePlaying()`;
+- `wledBuzzerServicePlay()`;
+- `wledBuzzerServicePlayRepeat()`;
+- `wledBuzzerServiceBeep()`;
+- `wledBuzzerServiceTone()`;
+- `wledBuzzerServiceStop()`;
+- `wledBuzzerServiceCurrentSoundId()`.
 
-## 6. HTTP API negative tests
+Repeat the optional-consumer test with iDotMatrix if convenient. Calls that request playback during Night Mode must return `false`.
 
-These must return HTTP 400 and must not start an unintended sound:
+## 7. Existing v0.1.0 regression
 
-```bash
-curl -i "http://<WLED-IP>/buzzer?tone=-1&duration=200"
-curl -i "http://<WLED-IP>/buzzer?tone=1000&duration=-1"
-curl -i "http://<WLED-IP>/buzzer?beep=abc"
-curl -i "http://<WLED-IP>/buzzer?play=alarm&repeat=0"
-curl -i "http://<WLED-IP>/buzzer?play=alarm&repeat=256"
-curl -i "http://<WLED-IP>/buzzer?play=alarm&repeat=3abc"
-curl -i "http://<WLED-IP>/buzzer?play=alarm&loop=1&repeat=3"
-curl -i "http://<WLED-IP>/buzzer?play=alarm&tone=1000"
-```
+Perform a short smoke test of:
 
-Boolean text is case-insensitive for the supported forms (`0/1`, `false/true`, `off/on`).
+- passive playback;
+- active playback;
+- one-shot sound;
+- `repeat=3`;
+- `loop=1` plus Stop;
+- one custom tone;
+- one beep;
+- iDotMatrix playback.
 
-## 7. JSON API gate
+Do not retune the 15 qualified built-in sounds unless a genuine regression is found.
 
-Verify one-shot, finite repeat, loop, stop, tone and beep through `/json/state`. Also verify that malformed types, out-of-range values, `repeat:0`, `repeat:256`, `loop + repeat`, and multiple command categories do not start ambiguous playback.
-
-## 8. Reconfiguration/resource gate
-
-Verify:
-
-- enable/disable;
-- GPIO change;
-- Active/Passive change;
-- High/Low trigger;
-- passive volume;
-- occupied GPIO failure;
-- teardown followed by successful reinitialization.
-
-## 9. Diagnostics gate
-
-Check `/json/info`, `/json/state`, and `/buzzer` while idle and while playing. Textual info states may include:
-
-- `disabled`;
-- `GPIO not configured`;
-- `synchronization unavailable`;
-- `GPIO unavailable`;
-- `not ready`;
-- `idle`;
-- `playing <sound>`.
-
-The preferred timing source is `esp_timer 2ms`; a mutex-protected WLED-loop fallback is permitted if the timer cannot run.
-
-## 10. C++ consumer integration gate
-
-Use a real second usermod to exercise `WLEDBuzzerService`:
-
-- `instance()`;
-- `isReady()`;
-- `play()`;
-- `playRepeat()`;
-- `beep()`;
-- `tone()`;
-- `stop()`;
-- `isPlaying()`;
-- `currentSoundId()`;
-- behavior when the service is absent or not ready.
-
-This gate has already passed with the real iDotMatrix migration. Re-run a minimal consumer smoke test in RC9 to confirm no packaging or versioning regression.
-
-## 11. Package gate
+## 8. Package gate
 
 Verify:
 
@@ -178,12 +125,8 @@ Verify:
 sha256sum -c MANIFEST.sha256
 ```
 
-Release archives must contain the fixed root directory:
+Archives must retain the fixed root directory:
 
 ```text
 wled-usermod-buzzer/
 ```
-
-## Promotion rule
-
-Promote RC9 to **v0.1.0** when the final intended WLED target build, minimal active/passive hardware regression, API regression, resource/reconfiguration checks, and iDotMatrix consumer smoke test all pass without requiring functional changes.

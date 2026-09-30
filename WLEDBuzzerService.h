@@ -28,6 +28,9 @@ extern "C" {
 bool wledBuzzerServiceReady();
 bool wledBuzzerServicePlaying();
 bool wledBuzzerServicePlay(const char* soundId, bool loop);
+bool wledBuzzerServicePlayRepeat(const char* soundId, uint16_t repeatCount);
+bool wledBuzzerServiceBeep(uint16_t durationMs, uint16_t frequencyHz);
+bool wledBuzzerServiceTone(uint16_t frequencyHz, uint16_t durationMs);
 void wledBuzzerServiceStop();
 const char* wledBuzzerServiceCurrentSoundId();
 }
