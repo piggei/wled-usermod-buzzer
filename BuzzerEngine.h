@@ -19,15 +19,29 @@ public:
     outputContext_ = context;
   }
 
+  struct Snapshot {
+    bool playing = false;
+    bool looping = false;
+    uint16_t repeatRemaining = 0;
+    const char* soundId = "";
+    size_t noteIndex = 0;
+    size_t noteCount = 0;
+    uint16_t frequencyHz = 0;
+    uint32_t lastLatenessUs = 0;
+    uint32_t maxLatenessUs = 0;
+  };
+
   bool beginThreadSafe();
 
   bool play(const BuzzerSound& sound, uint64_t nowUs, bool loop = false);
+  bool playRepeat(const BuzzerSound& sound, uint64_t nowUs, uint16_t repeatCount);
   bool playTone(uint16_t frequencyHz, uint16_t durationMs, uint64_t nowUs, const char* id = "tone");
   bool stop();
   void service(uint64_t nowUs);
 
   bool isPlaying() const;
   bool isLooping() const;
+  uint16_t repeatRemaining() const;
   bool outputOn() const;
   const char* currentSoundId() const;
   size_t currentNoteIndex() const;
@@ -35,6 +49,7 @@ public:
   uint16_t currentFrequencyHz() const;
   uint32_t lastLatenessUs() const;
   uint32_t maxLatenessUs() const;
+  Snapshot snapshot() const;
 
 private:
   enum class Phase : uint8_t {
@@ -48,7 +63,7 @@ private:
   bool lock(bool wait) const;
   void unlock() const;
   void setOutputLocked(uint16_t frequencyHz, bool on);
-  bool startLocked(const BuzzerNote* notes, size_t noteCount, const char* id, uint64_t nowUs, bool loop);
+  bool startLocked(const BuzzerNote* notes, size_t noteCount, const char* id, uint64_t nowUs, bool loop, uint16_t repeatCount);
   void startCurrentNoteLocked(uint64_t nowUs, bool preservePhase);
   void advanceNoteLocked(uint64_t nowUs);
   void stopLocked();
@@ -66,6 +81,7 @@ private:
   Phase phase_ = Phase::Idle;
   size_t noteIndex_ = 0;
   bool loop_ = false;
+  uint16_t repeatRemaining_ = 0;
   bool outputOn_ = false;
   uint16_t outputFrequencyHz_ = 0;
   uint64_t nextChangeAtUs_ = 0;

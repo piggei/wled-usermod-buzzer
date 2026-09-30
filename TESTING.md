@@ -1,45 +1,182 @@
-# Testing - v0.1.0 b005
+# WLED Buzzer Usermod - v0.1.0-rc.6 test plan
 
-## Host tests
+This is the final verification checklist before promotion to v0.1.0. The UI and all 15 built-in sound definitions are frozen; RC5 is intended for release validation only.
 
-Run:
+## 1. Host regression tests
+
+Run from the repository root:
 
 ```bash
 ./run_host_tests.sh
 ```
 
-The host tests verify the sound registry and the non-blocking sequencing engine without WLED hardware.
+Also verify that the static test is independent of the current working directory:
 
-## Hardware smoke test
+```bash
+cd /tmp
+python3 /path/to/wled-usermod-buzzer/tests/test_static.py
+```
 
-1. Build WLED with this usermod enabled.
-2. Open Config -> Usermods -> Buzzer.
-3. Configure a free GPIO and save.
-4. Select every built-in sound and use Play / Stop.
-5. Confirm `/buzzer?play=victory` works from a browser.
-6. Confirm `/buzzer?play=alarm&loop=1` repeats until `/buzzer?stop=1`.
-7. For a passive buzzer, verify pitch changes between notes.
-8. For an active buzzer, verify the same entries reproduce distinct timing patterns.
-9. Verify `triple_beep` produces three 90 ms low-pitch beeps with about 70 ms silence between pulses, matching the classic alarm-style cadence.
-10. Compare `victory` and `fail` on passive hardware for the intended fanfare / cartoon-loss character.
-11. Switch Type to Active and confirm both the Volume control and its passive-only description disappear.
-12. Confirm API commands remain hidden until **Show API commands** is checked.
-13. Test Trigger level = High and Low with both active and passive hardware as appropriate.
-14. Check `/json/info` for timing and lateness diagnostics.
-15. Check `/json/state` for current buzzer state.
-16. Send JSON playback and stop commands through `/json/state`.
+Expected result:
 
-## Regression points inherited by design
+```text
+Static regression checks passed.
+All host tests passed.
+```
 
-- Playback must never use `delay()`.
-- The 2 ms timer callback must never wait for the engine mutex.
-- Small timer lateness must not accumulate from note to note.
-- Stopping an already idle engine must not emit extra hardware transitions.
-- Hardware reconfiguration must release the old GPIO and LEDC allocation before claiming the new configuration.
+The host suite covers engine sequencing, scheduler jitter, finite repeat, infinite loop, custom tones, stop behavior, strict input parsing, and exact membership of the 15-sound registry.
 
-## b005 UI/audio checks
+## 2. WLED build gate
 
-- With Type = Passive, verify Volume is a 0-100 slider with a live percentage readout.
-- With Type = Active, verify the complete Volume slider row is hidden.
-- Verify Triple Beep is the original high 2 kHz three-pulse trill.
-- Compare Victory against the supplied reference; confirm the F-major contour is recognizable.
+Compile the intended WLED release target with this usermod enabled. Record:
+
+- WLED version/commit;
+- PlatformIO environment;
+- MCU;
+- Arduino-ESP32 version;
+- build result and any warning attributable to the usermod.
+
+Confirm that the firmware contains `0.1.0` and `rc.6` and that **Config -> Usermods -> Buzzer** is available.
+
+## 3. Configuration UI gate
+
+The real WLED page must match the validated RC5 screenshot. Confirm:
+
+- no separator line directly below the **Buzzer** title;
+- `Enabled:` appears once;
+- `GPIO Pin:` appears once;
+- `Buzzer Type:` appears once;
+- `Trigger level:` appears once;
+- `Volume:` appears once and is visible only for Passive;
+- the active/passive explanatory text is displayed correctly;
+- `Sound:` appears once, followed by Play and Stop;
+- the save-before-test warning remains below the test controls;
+- **Show API commands** hides/shows the API examples;
+- selecting **Active** hides only the passive-only Volume row and its explanatory text.
+
+## 4. Built-in sound regression
+
+The following 15 sound definitions are hardware-qualified and frozen:
+
+- `beep`
+- `double_beep`
+- `triple_beep`
+- `notification`
+- `success`
+- `victory`
+- `yankee_doodle`
+- `fail`
+- `star_wars`
+- `warning`
+- `error`
+- `connect`
+- `disconnect`
+- `attention`
+- `alarm`
+
+Perform a short passive-buzzer regression and a short active-buzzer regression. Do not retune sounds unless a genuine regression is found.
+
+## 5. HTTP API positive tests
+
+Quote URLs containing `&` in Bash:
+
+```bash
+curl "http://<WLED-IP>/buzzer?play=victory"
+curl "http://<WLED-IP>/buzzer?play=alarm&repeat=3"
+curl "http://<WLED-IP>/buzzer?play=alarm&loop=1"
+curl "http://<WLED-IP>/buzzer?stop=1"
+curl "http://<WLED-IP>/buzzer?tone=1000&duration=200"
+curl "http://<WLED-IP>/buzzer?beep=150"
+curl "http://<WLED-IP>/buzzer?beep=150&frequency=2000"
+curl "http://<WLED-IP>/buzzer"
+```
+
+Expected:
+
+- `repeat=3` produces exactly three total executions;
+- `loop=1` continues until Stop;
+- custom tone accepts 20-20000 Hz and 1-60000 ms;
+- beep accepts 1-60000 ms and an optional 20-20000 Hz frequency;
+- status is internally coherent.
+
+## 6. HTTP API negative tests
+
+These must return HTTP 400 and must not start an unintended sound:
+
+```bash
+curl -i "http://<WLED-IP>/buzzer?tone=-1&duration=200"
+curl -i "http://<WLED-IP>/buzzer?tone=1000&duration=-1"
+curl -i "http://<WLED-IP>/buzzer?beep=abc"
+curl -i "http://<WLED-IP>/buzzer?play=alarm&repeat=0"
+curl -i "http://<WLED-IP>/buzzer?play=alarm&repeat=256"
+curl -i "http://<WLED-IP>/buzzer?play=alarm&repeat=3abc"
+curl -i "http://<WLED-IP>/buzzer?play=alarm&loop=1&repeat=3"
+curl -i "http://<WLED-IP>/buzzer?play=alarm&tone=1000"
+```
+
+Boolean text is case-insensitive for the supported forms (`0/1`, `false/true`, `off/on`).
+
+## 7. JSON API gate
+
+Verify one-shot, finite repeat, loop, stop, tone and beep through `/json/state`. Also verify that malformed types, out-of-range values, `repeat:0`, `repeat:256`, `loop + repeat`, and multiple command categories do not start ambiguous playback.
+
+## 8. Reconfiguration/resource gate
+
+Verify:
+
+- enable/disable;
+- GPIO change;
+- Active/Passive change;
+- High/Low trigger;
+- passive volume;
+- occupied GPIO failure;
+- teardown followed by successful reinitialization.
+
+## 9. Diagnostics gate
+
+Check `/json/info`, `/json/state`, and `/buzzer` while idle and while playing. Textual info states may include:
+
+- `disabled`;
+- `GPIO not configured`;
+- `synchronization unavailable`;
+- `GPIO unavailable`;
+- `not ready`;
+- `idle`;
+- `playing <sound>`.
+
+The preferred timing source is `esp_timer 2ms`; a mutex-protected WLED-loop fallback is permitted if the timer cannot run.
+
+## 10. C++ consumer integration gate
+
+Use a real second usermod to exercise `WLEDBuzzerService`:
+
+- `instance()`;
+- `isReady()`;
+- `play()`;
+- `playRepeat()`;
+- `beep()`;
+- `tone()`;
+- `stop()`;
+- `isPlaying()`;
+- `currentSoundId()`;
+- behavior when the service is absent or not ready.
+
+The planned iDotMatrix migration is the intended real-world consumer test.
+
+## 11. Package gate
+
+Verify:
+
+```bash
+sha256sum -c MANIFEST.sha256
+```
+
+Release archives must contain the fixed root directory:
+
+```text
+wled-usermod-buzzer/
+```
+
+## Promotion rule
+
+Promote RC5 to **v0.1.0** only after the intended WLED target build, minimal active/passive hardware regression, API regression, resource/reconfiguration checks, and real C++ consumer integration all pass without requiring functional changes.

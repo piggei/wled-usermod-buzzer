@@ -31,7 +31,15 @@ void BuzzerEngine::unlock() const {
 
 bool BuzzerEngine::play(const BuzzerSound& sound, uint64_t nowUs, bool loop) {
   if (!lock(true)) return false;
-  const bool started = startLocked(sound.notes, sound.noteCount, sound.id, nowUs, loop);
+  const bool started = startLocked(sound.notes, sound.noteCount, sound.id, nowUs, loop, 1u);
+  unlock();
+  return started;
+}
+
+bool BuzzerEngine::playRepeat(const BuzzerSound& sound, uint64_t nowUs, uint16_t repeatCount) {
+  if (repeatCount == 0) return false;
+  if (!lock(true)) return false;
+  const bool started = startLocked(sound.notes, sound.noteCount, sound.id, nowUs, false, repeatCount);
   unlock();
   return started;
 }
@@ -42,7 +50,7 @@ bool BuzzerEngine::playTone(uint16_t frequencyHz, uint16_t durationMs, uint64_t 
   customNote_.frequencyHz = frequencyHz;
   customNote_.durationMs = durationMs;
   customNote_.gapMs = 0;
-  const bool started = startLocked(&customNote_, 1, id, nowUs, false);
+  const bool started = startLocked(&customNote_, 1, id, nowUs, false, 1u);
   unlock();
   return started;
 }
@@ -52,9 +60,10 @@ bool BuzzerEngine::startLocked(
   size_t noteCount,
   const char* id,
   uint64_t nowUs,
-  bool loop
+  bool loop,
+  uint16_t repeatCount
 ) {
-  if (notes == nullptr || noteCount == 0 || id == nullptr || *id == '\0') return false;
+  if (notes == nullptr || noteCount == 0 || id == nullptr || *id == '\0' || repeatCount == 0) return false;
 
   stopLocked();
   notes_ = notes;
@@ -62,6 +71,7 @@ bool BuzzerEngine::startLocked(
   currentSoundId_ = id;
   noteIndex_ = 0;
   loop_ = loop;
+  repeatRemaining_ = loop ? 0u : repeatCount;
   lastLatenessUs_ = 0;
   maxLatenessUs_ = 0;
   startCurrentNoteLocked(nowUs, false);
@@ -69,10 +79,16 @@ bool BuzzerEngine::startLocked(
 }
 
 bool BuzzerEngine::stop() {
-  if (!lock(true)) return false;
+#if defined(ARDUINO_ARCH_ESP32)
+  if (mutex_ == nullptr) return false;
+  if (xSemaphoreTake(mutex_, portMAX_DELAY) != pdTRUE) return false;
   stopLocked();
-  unlock();
+  xSemaphoreGive(mutex_);
   return true;
+#else
+  stopLocked();
+  return true;
+#endif
 }
 
 void BuzzerEngine::stopLocked() {
@@ -82,6 +98,7 @@ void BuzzerEngine::stopLocked() {
   currentSoundId_ = nullptr;
   noteIndex_ = 0;
   loop_ = false;
+  repeatRemaining_ = 0;
   phase_ = Phase::Idle;
   nextChangeAtUs_ = 0;
 }
@@ -120,7 +137,9 @@ void BuzzerEngine::startCurrentNoteLocked(uint64_t nowUs, bool preservePhase) {
 
 bool BuzzerEngine::hasFollowingNoteLocked() const {
   if (noteCount_ == 0) return false;
-  return (noteIndex_ + 1u < noteCount_) || loop_;
+  if (noteIndex_ + 1u < noteCount_) return true;
+  if (loop_) return true;
+  return repeatRemaining_ > 1u;
 }
 
 void BuzzerEngine::advanceNoteLocked(uint64_t nowUs) {
@@ -131,11 +150,15 @@ void BuzzerEngine::advanceNoteLocked(uint64_t nowUs) {
 
   ++noteIndex_;
   if (noteIndex_ >= noteCount_) {
-    if (!loop_) {
+    if (loop_) {
+      noteIndex_ = 0;
+    } else if (repeatRemaining_ > 1u) {
+      --repeatRemaining_;
+      noteIndex_ = 0;
+    } else {
       stopLocked();
       return;
     }
-    noteIndex_ = 0;
   }
   startCurrentNoteLocked(nowUs, true);
 }
@@ -194,6 +217,13 @@ bool BuzzerEngine::isLooping() const {
   return value;
 }
 
+uint16_t BuzzerEngine::repeatRemaining() const {
+  if (!lock(true)) return 0;
+  const uint16_t value = phase_ == Phase::Idle || loop_ ? 0u : repeatRemaining_;
+  unlock();
+  return value;
+}
+
 bool BuzzerEngine::outputOn() const {
   if (!lock(true)) return false;
   const bool value = outputOn_;
@@ -240,5 +270,30 @@ uint32_t BuzzerEngine::maxLatenessUs() const {
   if (!lock(true)) return 0;
   const uint32_t value = maxLatenessUs_;
   unlock();
+  return value;
+}
+
+BuzzerEngine::Snapshot BuzzerEngine::snapshot() const {
+  Snapshot value;
+#if defined(ARDUINO_ARCH_ESP32)
+  if (mutex_ == nullptr) return value;
+  if (xSemaphoreTake(mutex_, portMAX_DELAY) != pdTRUE) return value;
+#else
+  if (!lock(true)) return value;
+#endif
+  value.playing = phase_ != Phase::Idle;
+  value.looping = loop_ && value.playing;
+  value.repeatRemaining = value.playing && !loop_ ? repeatRemaining_ : 0u;
+  value.soundId = currentSoundId_ != nullptr ? currentSoundId_ : "";
+  value.noteIndex = noteIndex_;
+  value.noteCount = noteCount_;
+  value.frequencyHz = outputOn_ ? outputFrequencyHz_ : 0u;
+  value.lastLatenessUs = lastLatenessUs_;
+  value.maxLatenessUs = maxLatenessUs_;
+#if defined(ARDUINO_ARCH_ESP32)
+  xSemaphoreGive(mutex_);
+#else
+  unlock();
+#endif
   return value;
 }

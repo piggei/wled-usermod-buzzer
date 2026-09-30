@@ -1,6 +1,6 @@
 {
   "name": "wled-usermod-buzzer",
-  "version": "0.1.0",
+  "version": "0.1.0-rc.6",
   "description": "Standalone active/passive buzzer service usermod for WLED",
   "keywords": [
     "wled",

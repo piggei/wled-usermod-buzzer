@@ -4,11 +4,13 @@
 #include <cstring>
 
 int main() {
-  assert(BuzzerSounds::count() >= 10);
-  assert(BuzzerSounds::find("triple_beep") != nullptr);
-  assert(BuzzerSounds::find("victory") != nullptr);
-  assert(BuzzerSounds::find("fail") != nullptr);
-  assert(BuzzerSounds::find("alarm") != nullptr);
+  static const char* EXPECTED_IDS[] = {
+    "beep", "double_beep", "triple_beep", "notification", "success",
+    "victory", "yankee_doodle", "fail", "star_wars", "warning",
+    "error", "connect", "disconnect", "attention", "alarm",
+  };
+  assert(BuzzerSounds::count() == (sizeof(EXPECTED_IDS) / sizeof(EXPECTED_IDS[0])));
+  for (const char* id : EXPECTED_IDS) assert(BuzzerSounds::find(id) != nullptr);
   assert(BuzzerSounds::find("missing") == nullptr);
 
   for (size_t i = 0; i < BuzzerSounds::count(); ++i) {

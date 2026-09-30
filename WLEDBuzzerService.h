@@ -9,6 +9,7 @@ public:
   static WLEDBuzzerService* instance();
 
   virtual bool play(const char* soundId, bool loop = false) = 0;
+  virtual bool playRepeat(const char* soundId, uint16_t repeatCount) = 0;
   virtual bool beep(uint16_t durationMs = 120, uint16_t frequencyHz = 1000) = 0;
   virtual bool tone(uint16_t frequencyHz, uint16_t durationMs) = 0;
   virtual void stop() = 0;
@@ -19,3 +20,14 @@ public:
 protected:
   static void setInstance(WLEDBuzzerService* instance);
 };
+
+// Stable optional C ABI for consumers that must remain linkable when this
+// usermod is absent. Consumers may weak-link these functions without including
+// this header or creating a PlatformIO library dependency.
+extern "C" {
+bool wledBuzzerServiceReady();
+bool wledBuzzerServicePlaying();
+bool wledBuzzerServicePlay(const char* soundId, bool loop);
+void wledBuzzerServiceStop();
+const char* wledBuzzerServiceCurrentSoundId();
+}

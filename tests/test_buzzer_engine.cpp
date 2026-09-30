@@ -23,43 +23,43 @@ int main() {
   BuzzerEngine engine;
   engine.attach(&output, &sink);
 
-  const BuzzerSound* notification = BuzzerSounds::find("notification");
-  assert(notification != nullptr);
-  assert(engine.play(*notification, 1000000u));
+  const BuzzerSound* connect = BuzzerSounds::find("connect");
+  assert(connect != nullptr);
+  assert(engine.play(*connect, 1000000u));
   assert(engine.isPlaying());
   assert(sink.on);
   assert(sink.frequency == 880);
   assert(sink.transitions == 1);
 
-  engine.service(1079999u);
+  engine.service(1064999u);
   assert(sink.on);
-  engine.service(1080000u);
+  engine.service(1065000u);
   assert(!sink.on);
   assert(sink.transitions == 2);
 
-  engine.service(1124999u);
+  engine.service(1089999u);
   assert(!sink.on);
-  engine.service(1125000u);
+  engine.service(1090000u);
   assert(sink.on);
   assert(sink.frequency == 1175);
   assert(sink.transitions == 3);
 
-  engine.service(1275000u);
+  engine.service(1220000u);
   assert(!engine.isPlaying());
   assert(!sink.on);
   assert(sink.transitions == 4);
 
   // Five milliseconds of service jitter on the first edge must not shift the
-  // nominal start of the following note from 1,125,000 us.
+  // nominal start of the following note from 1,090,000 us.
   Sink jitterSink;
   BuzzerEngine jitter;
   jitter.attach(&output, &jitterSink);
-  assert(jitter.play(*notification, 1000000u));
-  jitter.service(1085000u);
+  assert(jitter.play(*connect, 1000000u));
+  jitter.service(1070000u);
   assert(jitter.lastLatenessUs() == 5000u);
-  jitter.service(1124999u);
+  jitter.service(1089999u);
   assert(!jitterSink.on);
-  jitter.service(1125000u);
+  jitter.service(1090000u);
   assert(jitterSink.on);
   assert(jitterSink.frequency == 1175);
 
@@ -76,6 +76,39 @@ int main() {
   looping.service(2075000u);
   assert(loopSink.on);
   assert(looping.isLooping());
+  // Infinite loop must still be active after more than three complete plays.
+  looping.service(2125000u);
+  assert(!loopSink.on);
+  looping.service(2150000u);
+  assert(loopSink.on);
+  looping.service(2200000u);
+  assert(!loopSink.on);
+  looping.service(2225000u);
+  assert(loopSink.on);
+  assert(looping.isLooping());
+
+  // Finite repeat count means total executions, not extra repetitions.
+  Sink repeatSink;
+  BuzzerEngine repeated;
+  repeated.attach(&output, &repeatSink);
+  assert(repeated.playRepeat(loopSound, 4000000u, 3));
+  assert(repeated.repeatRemaining() == 3u);
+  repeated.service(4050000u);
+  assert(!repeatSink.on);
+  repeated.service(4075000u);
+  assert(repeatSink.on);
+  assert(repeated.repeatRemaining() == 2u);
+  repeated.service(4125000u);
+  assert(!repeatSink.on);
+  repeated.service(4150000u);
+  assert(repeatSink.on);
+  assert(repeated.repeatRemaining() == 1u);
+  repeated.service(4200000u);
+  assert(!repeated.isPlaying());
+  assert(!repeatSink.on);
+  assert(repeated.repeatRemaining() == 0u);
+  assert(repeatSink.transitions == 6u);
+  assert(!repeated.playRepeat(loopSound, 5000000u, 0));
 
   // Custom tones are one-shot and expose a stable synthetic sound ID.
   Sink toneSink;
