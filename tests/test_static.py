@@ -146,7 +146,8 @@ assert "addInfo('Buzzer:enabled',1,'<style>" in usermod
 assert "addInfo('Buzzer:enabled',1,'<style>.sec:has([name=\"Buzzer:enabled\"])>hr{display:none}</style>','Enabled:')" not in usermod
 assert "addInfo('Buzzer:pin',1,'','GPIO:')" not in usermod
 assert "addInfo('Buzzer:sound',1,'','Sound:')" not in usermod
-assert "docs/wled-buzzer-usermod-gui.png" not in readme
+assert "docs/wled-buzzer-usermod-gui.png" in readme
+assert (root / "docs" / "wled-buzzer-usermod-gui.png").is_file()
 
 # RC6 optional-consumer bridge contract.
 service_h = (root / "WLEDBuzzerService.h").read_text(encoding="utf-8")

@@ -4,6 +4,8 @@ Standalone active/passive buzzer service for WLED.
 
 **Stable release: v0.1.1**
 
+![WLED Buzzer Usermod configuration](docs/wled-buzzer-usermod-gui.png)
+
 ## Features
 
 - Active buzzer support using static GPIO output.
