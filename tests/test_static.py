@@ -8,8 +8,8 @@ library = (root / "library.json").read_text(encoding="utf-8")
 sounds = (root / "BuzzerSounds.cpp").read_text(encoding="utf-8")
 
 for token in [
-    'BUZZER_VERSION = "0.2.0"',
-    'BUZZER_BUILD = "dev-b002"',
+    'BUZZER_VERSION = "0.1.1"',
+    'BUZZER_BUILD = "final"',
     'PinManager::allocatePin(hardwarePin_, true, PinOwner::UM_Unspecified)',
     'PinManager::allocateLedc(1)',
     'PinManager::deallocateLedc(ledcChannel_, 1)',
@@ -39,7 +39,7 @@ for sound in [
 ]:
     assert f"`{sound}`" in readme, sound
 
-assert '"version": "0.2.0-dev-b002"' in library
+assert '"version": "0.1.1"' in library
 assert "iDotMatrix" not in usermod
 assert "IDotMatrix" not in usermod
 assert "delay(" not in usermod
@@ -106,7 +106,7 @@ for token in [
     assert token in sounds, token
 
 # Release hardening and UI regression checks.
-assert 'BUZZER_BUILD = "dev-b002"' in usermod
+assert 'BUZZER_BUILD = "final"' in usermod
 assert '#include "BuzzerInput.h"' in usermod
 assert 'BuzzerInput::parseUnsignedDecimal' in usermod
 assert 'BuzzerInput::parseBooleanText' in usermod
@@ -163,7 +163,7 @@ assert 'extern "C"' in service_h
 
 
 
-# v0.2.0-dev-b002 Night Mode contract.
+# v0.1.1 Night Mode contract.
 schedule = (root / "BuzzerSchedule.h").read_text(encoding="utf-8")
 for token in [
     'CFG_NIGHT_MODE[] PROGMEM = "nightMode"',
@@ -174,7 +174,7 @@ for token in [
     'state["muted"] = isNightMutedNow();',
     'state.add(F("muted by night mode"))',
     "L(m,'Night mode:')", "N0.firstChild.data='From: '", "L(f1,'To:')",
-    "if(f0)f0.type='time'", "if(f1)f1.type='time'",
+    "if(f0){f0.type='time';f0.style.width='120px'}", "if(f1){f1.type='time';f1.style.width='120px'}",
     'if(N0)N0.hidden=!v', 'if(N1)N1.hidden=!v',
     'if (setupComplete_ && mutedAfterConfig && engine_.isPlaying()) stopPlayback();',
 ]:

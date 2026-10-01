@@ -1,3 +1,26 @@
+## v0.1.1
+
+- Stable release of Night Mode and the complete optional weak-link C bridge.
+- Promoted the validated v0.1.1-rc.2 runtime without functional changes.
+- Includes configurable daily quiet intervals, conditional From/To controls, overnight/full-day mute handling, and immediate stop when Night Mode becomes active.
+- Includes the complete weak-link C bridge for play, repeat, beep, tone, stop, readiness, playback state, and current sound ID.
+- Keeps the v0.1.0 sound registry, playback timing, active/passive backends, HTTP/JSON APIs, and validated UI behavior unchanged.
+- Final UI refinement keeps compact 120 px Night Mode time fields.
+
+## v0.1.1-rc.2
+
+- UI-only refinement: reduced the Night Mode `From` and `To` time input widths to 120 px for a more compact layout.
+- No changes to Night Mode logic, sound playback, APIs, bridge, or sound registry.
+
+## v0.1.1-rc.1
+
+- Rebased the Night Mode and complete optional C bridge work as the v0.1.1 maintenance release candidate.
+- Includes configurable daily Night Mode with conditional `From:`/`To:` controls, same-day and overnight intervals, full-day mute when both boundaries are equal, and automatic stop when the quiet interval becomes active.
+- Completes the optional weak-link C bridge with repeat, beep and tone operations in addition to play/status/stop.
+- Preserves the qualified v0.1.0 sound registry, note timing, repeat/loop gaps, active/passive backend, APIs and existing UI behavior.
+- Includes the cosmetic Night Mode end-time label fix (`To:`).
+- Records successful hardware checks for Night Mode enable/disable behavior and configuration persistence across reset.
+
 ## v0.2.0-dev-b002
 
 - UI-only follow-up to dev-b001.

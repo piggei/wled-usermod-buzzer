@@ -2,7 +2,7 @@
 
 Standalone active/passive buzzer service for WLED.
 
-**Development build: v0.2.0-dev-b002**
+**Stable release: v0.1.1**
 
 ## Features
 
@@ -62,7 +62,7 @@ Save the configuration before testing after changing hardware settings.
 
 Night Mode uses WLED local time. If WLED does not yet have valid time, Night Mode does not mute playback. Intervals that cross midnight are supported (for example `23:00` -> `07:00`). If `From` and `To` are equal while Night Mode is enabled, the buzzer is muted for the full day.
 
-If playback is already active when the quiet interval begins, it is stopped and does not resume automatically when the interval ends. The configuration screenshot will be refreshed after hardware validation of the new Night Mode controls.
+If playback is already active when the quiet interval begins, it is stopped and does not resume automatically when the interval ends. The Night Mode interface and configuration persistence have been validated on real hardware.
 
 ## HTTP API
 
@@ -256,7 +256,7 @@ The repository must be available at the path referenced by the PlatformIO enviro
 
 ## Scope and limitations
 
-- v0.2.0 development currently targets ESP32-family WLED builds.
+- v0.1.1 currently targets ESP32-family WLED builds.
 - If the engine mutex cannot be created, playback is disabled rather than exposing an unsafe asynchronous fallback.
 - Passive playback requires LEDC resources.
 - Active buzzers reproduce rhythm only; they cannot reproduce melody pitch.
@@ -276,6 +276,6 @@ This allows update/build scripts to consume subsequent archives without version-
 
 ## Development status
 
-This is **v0.2.0-dev-b002**, the first development build after v0.1.0. It adds Night Mode and completes the optional weak-link C bridge. The validated v0.1.0 sound registry, note timing, repeat/loop gaps, active/passive backend, and existing UI controls are otherwise unchanged.
+This is **v0.1.1**, the first stable maintenance update after v0.1.0. It adds Night Mode and completes the optional weak-link C bridge while preserving the validated v0.1.0 sound registry, note timing, repeat/loop gaps, active/passive backend, and existing UI controls.
 
 The release qualification covered all 15 built-in sounds on passive hardware, active-buzzer playback, finite repeat and infinite loop behavior, HTTP API operation, and real consumer integration through iDotMatrix. `TESTING.md` remains the release-regression checklist for future maintenance.

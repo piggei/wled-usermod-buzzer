@@ -1,6 +1,6 @@
-# WLED Buzzer Usermod - v0.2.0-dev-b002 test plan
+# WLED Buzzer Usermod - v0.1.1 test plan
 
-This development build starts from the qualified v0.1.0 runtime and adds only Night Mode plus completion of the optional C bridge. The existing sound registry, note timing, final repeat/loop gaps and active/passive backend must not regress.
+This stable release starts from the qualified v0.1.0 runtime and adds only Night Mode plus completion of the optional C bridge. The existing sound registry, note timing, final repeat/loop gaps and active/passive backend must not regress.
 
 ## 1. Host regression tests
 
@@ -28,7 +28,7 @@ The host suite now also covers `HH:MM` parsing, same-day and overnight Night Mod
 
 ## 2. WLED build gate
 
-Compile the intended WLED target and confirm the firmware contains `0.2.0` and `dev-b002`.
+Compile the intended WLED target and confirm the firmware contains `0.1.1` and `final`.
 
 ## 3. Configuration UI gate
 
@@ -45,7 +45,7 @@ The validated v0.1.0 UI must remain unchanged except for the new Night Mode cont
 
 ## 4. Night Mode behavior gate
 
-Hardware checks already confirmed during dev-b001/dev-b002 testing:
+Hardware checks already confirmed during pre-RC Night Mode testing:
 
 - while inside the configured quiet interval, disabling Night Mode restores playback immediately and re-enabling it mutes playback again;
 - Night Mode configuration persists across application/device reset.
