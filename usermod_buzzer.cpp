@@ -4,6 +4,11 @@
 #include "BuzzerInput.h"
 #include "BuzzerSchedule.h"
 #include "WLEDBuzzerService.h"
+#include "audio/BuzzerAudioConfig.h"
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+#include "audio/BuzzerAudioBackend.h"
+#include "audio/BuzzerAudioSamples.h"
+#endif
 
 #if defined(ARDUINO_ARCH_ESP32)
 #include <esp32-hal-ledc.h>
@@ -31,7 +36,7 @@ const char CFG_OLD_VOLUME[] PROGMEM = "passiveVolume";
 const char CFG_OLD_SOUND[] PROGMEM = "testSound";
 
 constexpr const char* BUZZER_VERSION = "0.2.0";
-constexpr const char* BUZZER_BUILD = "dev-b002";
+constexpr const char* BUZZER_BUILD = "release";
 constexpr uint16_t DEFAULT_TONE_HZ = 1000u;
 constexpr uint16_t DEFAULT_BEEP_MS = 120u;
 constexpr uint16_t MAX_TONE_HZ = 20000u;
@@ -39,6 +44,12 @@ constexpr uint16_t MAX_DURATION_MS = 60000u;
 constexpr uint8_t LEDC_RESOLUTION_BITS = 10u;
 constexpr uint32_t LEDC_MAX_DUTY = (1u << LEDC_RESOLUTION_BITS) - 1u;
 constexpr uint64_t SERVICE_PERIOD_US = 2000u;
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+constexpr uint32_t AUDIO_INIT_RETRY_MS = 2000u;
+constexpr uint32_t AUDIO_SHARED_INIT_RETRY_MS = 5000u;
+constexpr uint32_t AUDIO_BOOT_DEFER_MS = 1500u;
+constexpr uint32_t AUDIO_MODE_RECHECK_MS = 2000u;
+#endif
 
 #if defined(ARDUINO_ARCH_ESP32)
 constexpr uint8_t LEDC_UNASSIGNED = 255u;
@@ -47,6 +58,7 @@ constexpr uint8_t LEDC_UNASSIGNED = 255u;
 enum : uint8_t {
   BUZZER_TYPE_ACTIVE = 0,
   BUZZER_TYPE_PASSIVE = 1,
+  BUZZER_TYPE_AUDIO = 2,
 };
 
 enum : uint8_t {
@@ -101,6 +113,13 @@ private:
   uint8_t hardwareTrigger_ = TRIGGER_HIGH;
   uint8_t hardwareVolume_ = 100;
   BuzzerEngine engine_;
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+  BuzzerAudioBackend audioBackend_;
+  uint32_t lastAudioInitAttemptMs_ = 0u;
+  bool audioBootInitPending_ = false;
+  uint32_t audioBootInitSinceMs_ = 0u;
+  uint32_t lastAudioModeCheckMs_ = 0u;
+#endif
 
 #if defined(ARDUINO_ARCH_ESP32)
   uint8_t ledcChannel_ = LEDC_UNASSIGNED;
@@ -124,6 +143,49 @@ private:
   bool triggerLow() const {
     return hardwareTrigger_ == TRIGGER_LOW;
   }
+
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+  bool audioReactiveOwnsPin(int pin) const {
+#if defined(WLED_BUZZER_AUDIO_WAVESHARE_S3_MATRIX)
+    return PinManager::getPinOwner(pin) == PinOwner::UM_Audioreactive;
+#else
+    (void)pin;
+    return false;
+#endif
+  }
+
+  bool audioReactiveOwnsAnySharedI2S() const {
+#if defined(WLED_BUZZER_AUDIO_WAVESHARE_S3_MATRIX)
+    return audioReactiveOwnsPin(BuzzerAudioConfig::I2S_BCLK) ||
+      audioReactiveOwnsPin(BuzzerAudioConfig::I2S_LRCK) ||
+      audioReactiveOwnsPin(BuzzerAudioConfig::I2S_MCLK) ||
+      audioReactiveOwnsPin(BuzzerAudioConfig::I2S_DIN);
+#else
+    return false;
+#endif
+  }
+
+  bool audioReactiveOwnsSharedI2S() const {
+#if defined(WLED_BUZZER_AUDIO_WAVESHARE_S3_MATRIX)
+    // The Waveshare board shares MCLK/BCLK/LRCK between ES7210 RX and ES8311
+    // TX. Only enter slave-TX mode when AudioReactive owns the complete clock
+    // side plus the microphone DIN pin, proving that the digital RX path is
+    // active on this exact bus.
+    return audioReactiveOwnsPin(BuzzerAudioConfig::I2S_BCLK) &&
+      audioReactiveOwnsPin(BuzzerAudioConfig::I2S_LRCK) &&
+      audioReactiveOwnsPin(BuzzerAudioConfig::I2S_MCLK) &&
+      audioReactiveOwnsPin(BuzzerAudioConfig::I2S_DIN);
+#else
+    return false;
+#endif
+  }
+
+  bool audioReactiveI2STransitioning() const {
+    const bool any = audioReactiveOwnsAnySharedI2S();
+    const bool all = audioReactiveOwnsSharedI2S();
+    return any && !all;
+  }
+#endif
 
   uint32_t passiveIdleDuty() const {
     return triggerLow() ? LEDC_MAX_DUTY : 0u;
@@ -219,7 +281,16 @@ private:
   }
 
   void writeOutput(uint16_t frequencyHz, bool on) {
-    if (!hardwareReady_ || hardwarePin_ < 0) return;
+    if (!hardwareReady_) return;
+
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) {
+      audioBackend_.setTone(frequencyHz, on);
+      return;
+    }
+#endif
+
+    if (hardwarePin_ < 0) return;
 
     if (hardwareType_ == BUZZER_TYPE_PASSIVE) {
 #if defined(ARDUINO_ARCH_ESP32)
@@ -254,6 +325,12 @@ private:
       return false;
     }
 
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) {
+      if (hardwareReady_) writeOutput(0, false);
+      audioBackend_.end();
+    } else
+#endif
     if (hardwareReady_ && hardwarePin_ >= 0) {
       writeOutput(0, false);
       if (hardwareType_ == BUZZER_TYPE_PASSIVE) detachPassiveBuzzer();
@@ -272,8 +349,16 @@ private:
   }
 
   void setupHardware() {
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    audioBootInitPending_ = false;
+#endif
     if (!teardownHardware()) return;
-    if (!enabled_ || pin_ < 0) return;
+    if (!enabled_) return;
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (buzzerType_ != BUZZER_TYPE_AUDIO && pin_ < 0) return;
+#else
+    if (pin_ < 0) return;
+#endif
 #if defined(ARDUINO_ARCH_ESP32)
     if (!engineThreadSafe_) {
       DEBUG_PRINTLN(F("[Buzzer] synchronization unavailable; hardware playback disabled"));
@@ -285,6 +370,41 @@ private:
     hardwareType_ = buzzerType_;
     hardwareTrigger_ = trigger_;
     hardwareVolume_ = volume_;
+
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) {
+      hardwarePin_ = -1;
+      lastAudioInitAttemptMs_ = millis();
+      lastAudioModeCheckMs_ = lastAudioInitAttemptMs_;
+      // PinManager ownership can change one pin at a time while AudioReactive
+      // starts/stops. Never become an independent clock master during that
+      // transition window: wait until either all shared pins belong to
+      // AudioReactive (slave TX) or none of them do (standalone master TX).
+      if (audioReactiveI2STransitioning()) {
+        DEBUG_PRINTLN(F("[Buzzer] AudioReactive I2S ownership transition; audio init deferred"));
+        return;
+      }
+      const bool sharedI2s = audioReactiveOwnsSharedI2S();
+      // In shared mode the global board I2C bus is already active; do not
+      // reinitialize it while AudioReactive/ES7210 and sensors are using it.
+      if (!audioBackend_.begin(hardwareVolume_, sharedI2s, !sharedI2s)) {
+        DEBUG_PRINTLN(F("[Buzzer] I2S/ES8311 audio backend initialization failed"));
+        return;
+      }
+      hardwareReady_ = true;
+#if defined(ARDUINO_ARCH_ESP32)
+      if (!startServiceTimer()) DEBUG_PRINTLN(F("[Buzzer] esp_timer unavailable; using WLED loop timing"));
+#endif
+      DEBUG_PRINTF_P(
+        PSTR("[Buzzer] ready: type=audio profile=%s mode=%s rate=%lu bits=%u\n"),
+        audioBackend_.profileName(),
+        audioBackend_.modeName(),
+        static_cast<unsigned long>(audioBackend_.streamSampleRate()),
+        audioBackend_.streamBitsPerSample()
+      );
+      return;
+    }
+#endif
 
     if (!PinManager::isPinOk(hardwarePin_, true) ||
         !PinManager::allocatePin(hardwarePin_, true, PinOwner::UM_Unspecified)) {
@@ -343,6 +463,9 @@ private:
 #if defined(ARDUINO_ARCH_ESP32)
     if (!engineThreadSafe_) return false;
 #endif
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) return enabled_ && hardwareReady_ && audioBackend_.isReady();
+#endif
     return enabled_ && hardwareReady_ && !pinUnavailable_ && hardwarePin_ >= 0;
   }
 
@@ -350,17 +473,54 @@ private:
     return canPlay() && !isNightMutedNow();
   }
 
+  uint8_t currentBackendMask() const {
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) return BUZZER_BACKEND_AUDIO;
+#endif
+    return hardwareType_ == BUZZER_TYPE_PASSIVE ? BUZZER_BACKEND_PASSIVE : BUZZER_BACKEND_ACTIVE;
+  }
+
+  bool soundSupportedByCurrentBackend(const BuzzerSound& sound) const {
+    return BuzzerSounds::supportsBackend(sound, currentBackendMask());
+  }
+
   bool playSound(const char* soundId, bool loop) {
     if (!playbackAllowed()) return false;
     const BuzzerSound* sound = BuzzerSounds::find(soundId);
-    if (sound == nullptr) return false;
+    if (sound == nullptr || !soundSupportedByCurrentBackend(*sound)) return false;
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) {
+      const BuzzerAudioSample* sample = BuzzerAudioSamples::find(soundId);
+      audioBackend_.selectSample(sample);
+      if (sample != nullptr && sample->proxySound != nullptr) {
+        const bool started = engine_.play(*sample->proxySound, nowUs(), loop);
+        if (!started) audioBackend_.selectSample(nullptr);
+        return started;
+      }
+    }
+    audioBackend_.selectSample(nullptr);
+#endif
+    if (sound->notes == nullptr || sound->noteCount == 0u) return false;
     return engine_.play(*sound, nowUs(), loop);
   }
 
   bool playSoundRepeat(const char* soundId, uint16_t repeatCount) {
     if (!playbackAllowed() || repeatCount == 0) return false;
     const BuzzerSound* sound = BuzzerSounds::find(soundId);
-    if (sound == nullptr) return false;
+    if (sound == nullptr || !soundSupportedByCurrentBackend(*sound)) return false;
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) {
+      const BuzzerAudioSample* sample = BuzzerAudioSamples::find(soundId);
+      audioBackend_.selectSample(sample);
+      if (sample != nullptr && sample->proxySound != nullptr) {
+        const bool started = engine_.playRepeat(*sample->proxySound, nowUs(), repeatCount);
+        if (!started) audioBackend_.selectSample(nullptr);
+        return started;
+      }
+    }
+    audioBackend_.selectSample(nullptr);
+#endif
+    if (sound->notes == nullptr || sound->noteCount == 0u) return false;
     return engine_.playRepeat(*sound, nowUs(), repeatCount);
   }
 
@@ -410,6 +570,18 @@ private:
     body += BUZZER_VERSION;
     body += F("\",\"build\":\"");
     body += BUZZER_BUILD;
+    body += F("\",\"backend\":\"");
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) body += F("audio");
+    else
+#endif
+    body += hardwareType_ == BUZZER_TYPE_PASSIVE ? F("passive") : F("active");
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) {
+      body += F("\",\"source\":\"");
+      body += snapshot.playing ? audioSourceForSound(snapshot.soundId) : "";
+    }
+#endif
     body += F("\",\"enabled\":");
     body += enabled_ ? F("true") : F("false");
     body += F(",\"ready\":");
@@ -480,8 +652,13 @@ private:
           request->send(423, FPSTR(CONTENT_TYPE_PLAIN), F("Buzzer muted by night mode."));
           return;
         }
-        if (BuzzerSounds::find(soundId.c_str()) == nullptr) {
+        const BuzzerSound* requestedSound = BuzzerSounds::find(soundId.c_str());
+        if (requestedSound == nullptr) {
           request->send(404, FPSTR(CONTENT_TYPE_PLAIN), F("Unknown buzzer sound."));
+          return;
+        }
+        if (!soundSupportedByCurrentBackend(*requestedSound)) {
+          request->send(409, FPSTR(CONTENT_TYPE_PLAIN), F("Sound not supported by current backend."));
           return;
         }
 
@@ -577,12 +754,65 @@ public:
 #endif
     WLEDBuzzerService::setInstance(this);
     registerApiEndpoint();
-    setupHardware();
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (enabled_ && buzzerType_ == BUZZER_TYPE_AUDIO) {
+      // Defer the very first ES8311/I2S bring-up until all WLED usermods have
+      // completed their setup phase. A later manual settings save reliably
+      // recovered cold-boot silence on the Waveshare board; deferring the first
+      // bring-up reproduces that known-good ordering automatically.
+      audioBootInitPending_ = true;
+      audioBootInitSinceMs_ = millis();
+      lastAudioInitAttemptMs_ = audioBootInitSinceMs_;
+    } else
+#endif
+    {
+      setupHardware();
+    }
     setupComplete_ = true;
   }
 
   void loop() override {
     if (!enabled_) return;
+
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (audioBootInitPending_) {
+      if (!enabled_ || buzzerType_ != BUZZER_TYPE_AUDIO) {
+        audioBootInitPending_ = false;
+      } else if (static_cast<uint32_t>(millis() - audioBootInitSinceMs_) >= AUDIO_BOOT_DEFER_MS) {
+        audioBootInitPending_ = false;
+        setupHardware();
+      }
+    }
+
+    // If a later initialization attempt fails, retry automatically instead of
+    // requiring a settings change to reinitialize the codec/I2S path.
+    if (!audioBootInitPending_ && buzzerType_ == BUZZER_TYPE_AUDIO && !hardwareReady_
+#if defined(ARDUINO_ARCH_ESP32)
+        && engineThreadSafe_
+#endif
+        && static_cast<uint32_t>(millis() - lastAudioInitAttemptMs_) >=
+          (audioReactiveOwnsAnySharedI2S() ? AUDIO_SHARED_INIT_RETRY_MS : AUDIO_INIT_RETRY_MS)) {
+      setupHardware();
+    }
+
+    // AudioReactive can be enabled/disabled or reconfigured at runtime. Follow
+    // ownership of the shared Waveshare clock pins and switch cleanly between
+    // standalone master TX and shared slave TX without ever touching I2S0 RX.
+    if (!audioBootInitPending_ && buzzerType_ == BUZZER_TYPE_AUDIO && hardwareReady_ &&
+        static_cast<uint32_t>(millis() - lastAudioModeCheckMs_) >= AUDIO_MODE_RECHECK_MS) {
+      lastAudioModeCheckMs_ = millis();
+      if (audioReactiveI2STransitioning()) {
+        DEBUG_PRINTLN(F("[Buzzer] AudioReactive I2S ownership transition; suspending audio backend"));
+        setupHardware();
+      } else {
+        const bool sharedI2s = audioReactiveOwnsSharedI2S();
+        if (sharedI2s != audioBackend_.isSharedClockMode()) {
+          DEBUG_PRINTF_P(PSTR("[Buzzer] audio clock ownership changed; switching to %s mode\n"), sharedI2s ? "shared-I2S" : "standalone");
+          setupHardware();
+        }
+      }
+    }
+#endif
 
     const bool mutedNow = isNightMutedNow();
     if (mutedNow && !nightMuted_ && engine_.isPlaying()) stopPlayback();
@@ -605,11 +835,17 @@ public:
 
   bool beep(uint16_t durationMs = DEFAULT_BEEP_MS, uint16_t frequencyHz = DEFAULT_TONE_HZ) override {
     if (!playbackAllowed()) return false;
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) audioBackend_.selectSample(nullptr);
+#endif
     return engine_.playTone(clampFrequency(frequencyHz), clampDuration(durationMs), nowUs(), "beep");
   }
 
   bool tone(uint16_t frequencyHz, uint16_t durationMs) override {
     if (!playbackAllowed()) return false;
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) audioBackend_.selectSample(nullptr);
+#endif
     return engine_.playTone(clampFrequency(frequencyHz), clampDuration(durationMs), nowUs(), "tone");
   }
 
@@ -629,6 +865,12 @@ public:
     return engine_.currentSoundId();
   }
 
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+  const char* audioSourceForSound(const char* soundId) const {
+    return BuzzerAudioSamples::find(soundId) != nullptr ? "sample" : "tone";
+  }
+#endif
+
   void addToJsonInfo(JsonObject& root) override {
     const BuzzerEngine::Snapshot snapshot = engine_.snapshot();
     JsonObject user = root["u"];
@@ -639,7 +881,11 @@ public:
 
     JsonArray state = user.createNestedArray(F("Buzzer state"));
     if (!enabled_) state.add(F("disabled"));
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    else if (buzzerType_ != BUZZER_TYPE_AUDIO && pin_ < 0) state.add(F("GPIO not configured"));
+#else
     else if (pin_ < 0) state.add(F("GPIO not configured"));
+#endif
 #if defined(ARDUINO_ARCH_ESP32)
     else if (!engineThreadSafe_) state.add(F("synchronization unavailable"));
 #endif
@@ -654,6 +900,34 @@ public:
     else if (!hasValidLocalTime()) night.add(String(nightFrom_) + F("-") + nightTo_ + F(" (waiting for valid time)"));
     else night.add(String(nightFrom_) + F("-") + nightTo_ + (isNightMutedNow() ? F(" (muted)") : F(" (active)")));
 
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (buzzerType_ == BUZZER_TYPE_AUDIO) {
+      JsonArray audio = user.createNestedArray(F("Buzzer audio"));
+      if (audioBackend_.isReady()) {
+        audio.add(audioBackend_.profileName());
+        audio.add(String(audioBackend_.modeName()) +
+          F(" | TX I2S1 ") + (audioBackend_.isSharedClockMode() ? F("slave") : F("master")) +
+          F(" | rate ") + audioBackend_.streamSampleRate() + F(" Hz | ") + audioBackend_.streamBitsPerSample() +
+          (audioBackend_.isSharedClockMode()
+            ? F(" bit | clock tap GPIO-matrix + input-enable | RX I2S0 untouched")
+            : F(" bit | local I2S1 clock master")));
+        const BuzzerAudioBackend::Telemetry telemetry = audioBackend_.telemetry();
+        audio.add(String(F("DMA ")) + BuzzerAudioBackend::DMA_BUFFER_COUNT + F("x") +
+          BuzzerAudioBackend::FRAMES_PER_BUFFER + F(" | coverage=") + telemetry.dmaCoverageUs +
+          F("us | writes=") + telemetry.writes + F(" err=") + telemetry.writeErrors +
+          F(" short=") + telemetry.shortWrites);
+        audio.add(String(F("timing maxWrite=")) + telemetry.maxWriteUs + F("us maxGap=") +
+          telemetry.maxProducerGapUs + F("us late=") + telemetry.lateWrites +
+          F(" | core0=") + telemetry.core0Runs + F(" core1=") + telemetry.core1Runs +
+          F(" | stackMin=") + telemetry.stackMinFree);
+        if (snapshot.playing) audio.add(audioSourceForSound(snapshot.soundId));
+      } else {
+        audio.add(F("not ready"));
+        audio.add(String(F("error: ")) + audioBackend_.lastError());
+      }
+    }
+#endif
+
 #if defined(ARDUINO_ARCH_ESP32)
     JsonArray timing = user.createNestedArray(F("Buzzer timing"));
     timing.add(String(serviceTimerRunning_ ? F("esp_timer 2ms") : F("WLED loop")) +
@@ -665,6 +939,11 @@ public:
     const BuzzerEngine::Snapshot snapshot = engine_.snapshot();
     JsonObject state = root.createNestedObject(FPSTR(JSON_KEY));
     state["ready"] = canPlay();
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    state["backend"] = hardwareType_ == BUZZER_TYPE_AUDIO ? "audio" : (hardwareType_ == BUZZER_TYPE_PASSIVE ? "passive" : "active");
+#else
+    state["backend"] = hardwareType_ == BUZZER_TYPE_PASSIVE ? "passive" : "active";
+#endif
     state["muted"] = isNightMutedNow();
     state["nightMode"] = nightMode_;
     state["nightFrom"] = nightFrom_;
@@ -675,6 +954,15 @@ public:
     state["repeatRemaining"] = snapshot.repeatRemaining;
     state["note"] = snapshot.playing ? static_cast<uint32_t>(snapshot.noteIndex + 1u) : 0u;
     state["notes"] = static_cast<uint32_t>(snapshot.noteCount);
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (hardwareType_ == BUZZER_TYPE_AUDIO) {
+      state["source"] = snapshot.playing ? audioSourceForSound(snapshot.soundId) : "";
+      state["audioMode"] = audioBackend_.isReady() ? audioBackend_.modeName() : "not-ready";
+      state["audioRate"] = audioBackend_.isReady() ? audioBackend_.streamSampleRate() : 0u;
+      state["audioBits"] = audioBackend_.isReady() ? audioBackend_.streamBitsPerSample() : 0u;
+      state["frequency"] = snapshot.playing && BuzzerAudioSamples::find(snapshot.soundId) != nullptr ? 0u : snapshot.frequencyHz;
+    } else
+#endif
     state["frequency"] = snapshot.frequencyHz;
   }
 
@@ -757,8 +1045,8 @@ public:
   void addToConfig(JsonObject& root) override {
     JsonObject config = root.createNestedObject(FPSTR(USERMOD_NAME));
     config[FPSTR(CFG_ENABLED)] = enabled_;
-    config[FPSTR(CFG_PIN)] = pin_;
     config[FPSTR(CFG_TYPE)] = buzzerType_;
+    config[FPSTR(CFG_PIN)] = pin_;
     config[FPSTR(CFG_TRIGGER)] = trigger_;
     config[FPSTR(CFG_VOLUME)] = volume_;
     config[FPSTR(CFG_NIGHT_MODE)] = nightMode_;
@@ -797,7 +1085,7 @@ public:
     if (!config[FPSTR(CFG_VOLUME)].isNull()) getJsonValue(config[FPSTR(CFG_VOLUME)], volume_, uint8_t(100));
     else complete &= getJsonValue(config[FPSTR(CFG_OLD_VOLUME)], volume_, uint8_t(100));
 
-    // Night Mode settings were introduced in v0.2.0. Missing keys migrate silently
+    // Night Mode settings were introduced in v0.1.1. Missing keys migrate silently
     // from v0.1.0 defaults instead of marking the whole usermod config incomplete.
     getJsonValue(config[FPSTR(CFG_NIGHT_MODE)], nightMode_, false);
     getJsonValue(config[FPSTR(CFG_NIGHT_FROM)], nightFrom_, String("23:00"));
@@ -823,7 +1111,11 @@ public:
     if (!config[FPSTR(CFG_SOUND)].isNull()) getJsonValue(config[FPSTR(CFG_SOUND)], sound_, String("victory"));
     else complete &= getJsonValue(config[FPSTR(CFG_OLD_SOUND)], sound_, String("victory"));
 
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    if (buzzerType_ > BUZZER_TYPE_AUDIO) buzzerType_ = BUZZER_TYPE_ACTIVE;
+#else
     if (buzzerType_ > BUZZER_TYPE_PASSIVE) buzzerType_ = BUZZER_TYPE_ACTIVE;
+#endif
     if (trigger_ > TRIGGER_LOW) trigger_ = TRIGGER_HIGH;
     volume_ = clampPercent(volume_);
     if (BuzzerSounds::find(sound_.c_str()) == nullptr) sound_ = "victory";
@@ -842,6 +1134,9 @@ public:
 
   void appendConfigData() override {
     oappend(F("dd=addDropdown('Buzzer','type');addOption(dd,'Active',0);addOption(dd,'Passive',1);"));
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    oappend(F("addOption(dd,'Audio (I2S)',2);"));
+#endif
     oappend(F("dd=addDropdown('Buzzer','trigger');addOption(dd,'High',0);addOption(dd,'Low',1);"));
     oappend(F("dd=addDropdown('Buzzer','sound');"));
     for (size_t i = 0; i < BuzzerSounds::count(); ++i) {
@@ -850,7 +1145,11 @@ public:
       oappend(sound.label);
       oappend(F("','"));
       oappend(sound.id);
-      oappend(F("');"));
+      oappend(F("');dd.lastChild._b="));
+      char maskBuf[4];
+      snprintf(maskBuf, sizeof(maskBuf), "%u", static_cast<unsigned>(sound.backendMask));
+      oappend(maskBuf);
+      oappend(F(";"));
     }
 
     // Preserve the validated DOM structure. Do not wrap or move the other rows.
@@ -858,13 +1157,17 @@ public:
     oappend(F("addInfo('Buzzer:pin',1,'');"));
     oappend(F("addInfo('Buzzer:type',1,'');"));
     oappend(F("addInfo('Buzzer:trigger',1,'');"));
+#if defined(WLED_BUZZER_ENABLE_AUDIO)
+    oappend(F("addInfo('Buzzer:volume',1,'<br><i style=\"color:#fa0\">Active buzzers reproduce rhythm only. Passive and I2S Audio reproduce note pitch.</i>');"));
+#else
     oappend(F("addInfo('Buzzer:volume',1,'<br><i style=\"color:#fa0\">Active buzzers reproduce rhythm only. Passive buzzers reproduce note pitch.</i>');"));
+#endif
     oappend(F("addInfo('Buzzer:nightMode',1,'');"));
     oappend(F("addInfo('Buzzer:nightFrom',1,'');"));
     oappend(F("addInfo('Buzzer:nightTo',1,'');"));
     oappend(F("addInfo('Buzzer:sound',1,'');"));
 
-    oappend(F("setTimeout(()=>{d.querySelectorAll('hr').forEach(e=>{let b=e.getBoundingClientRect();if(b.top<220&&b.width>innerWidth*.7)e.style.display='none'});let q=k=>{let a=d.getElementsByName('Buzzer:'+k);return a[a.length-1]},L=(e,x)=>{if(!e)return;let n=e.previousSibling;while(n&&n.nodeName!='BR'){if(n.nodeType==3&&n.data.trim()){n.data=x+' ';return}n=n.previousSibling}},w=e=>{if(!e)return;let b=e;while(b.previousSibling&&b.previousSibling.nodeName!='BR')b=b.previousSibling;let x=d.createElement('span');b.before(x);while(x.nextSibling){let n=x.nextSibling;x.append(n);if(n.nodeName=='BR')break}return x},e=q('enabled'),p=q('pin'),t=q('type'),g=q('trigger'),r=q('volume'),m=q('nightMode'),f0=q('nightFrom'),f1=q('nightTo'),s=q('sound'),V=w(r),N0=w(f0),N1=w(f1);L(e,'Enabled:');L(p,'GPIO Pin:');L(t,'Buzzer Type:');L(g,'Trigger level:');L(m,'Night mode:');L(f1,'To:');L(s,'Sound:');if(V&&V.firstChild)V.firstChild.data='Volume: ';if(N0&&N0.firstChild)N0.firstChild.data='From: ';if(N1&&N1.firstChild)N1.firstChild.data='To: ';if(f0)f0.type='time';if(f1)f1.type='time';if(r){r.type='range';r.min=0;r.max=100;r.style.width='170px';let n=d.createElement('span'),u=()=>n.textContent=r.value+'%';r.after(n);r.oninput=u;u()}if(s){let f=u=>fetch(u).then(async x=>{if(!x.ok)alert(await x.text())}),p=d.createElement('button'),z=d.createElement('button');p.type=z.type='button';p.textContent='Play';z.textContent='Stop';p.onclick=()=>f('/buzzer?play='+encodeURIComponent(s.value));z.onclick=()=>f('/buzzer?stop=1');s.after(p);p.after(z);let n=d.createElement('div');n.style='margin:8px 0;color:#fa0';n.innerHTML='<i>Save the configuration before testing hardware changes.</i>';z.after(n);let h=d.createElement('label'),c=d.createElement('input');h.style='display:block;margin:16px 0 8px';c.type='checkbox';h.append(c,d.createTextNode(' Show API commands'));n.after(h);let a=d.createElement('div');a.hidden=true;a.innerHTML='<b>Web API</b><br>Play selected sound:<br><code id=\"bzurl\"></code><br>Loop a sound:<br><code id=\"bzloop\"></code><br>Stop:<br><code>'+location.origin+'/buzzer?stop=1</code><br>Tone:<br><code>'+location.origin+'/buzzer?tone=1000&duration=200</code><br>Beep:<br><code>'+location.origin+'/buzzer?beep=150</code>';h.after(a);c.onchange=()=>a.hidden=!c.checked;let U=()=>{let u=location.origin+'/buzzer?play='+s.value;d.getElementById('bzurl').textContent=u;d.getElementById('bzloop').textContent=u+'&loop=1'};s.onchange=U;U()}let H=()=>{if(V)V.hidden=!(t&&t.value==1)};if(t){t.onchange=H;H()}let N=()=>{let v=!!(m&&m.checked);if(N0)N0.hidden=!v;if(N1)N1.hidden=!v};if(m){m.onchange=N;N()}},0);"));
+    oappend(F("setTimeout(()=>{d.querySelectorAll('hr').forEach(e=>{let b=e.getBoundingClientRect();if(b.top<220&&b.width>innerWidth*.7)e.style.display='none'});let q=k=>{let a=d.getElementsByName('Buzzer:'+k);return a[a.length-1]},L=(e,x)=>{if(!e)return;let n=e.previousSibling;while(n&&n.nodeName!='BR'){if(n.nodeType==3&&n.data.trim()){n.data=x+' ';return}n=n.previousSibling}},w=e=>{if(!e)return;let b=e;while(b.previousSibling&&b.previousSibling.nodeName!='BR')b=b.previousSibling;let x=d.createElement('span');b.before(x);while(x.nextSibling){let n=x.nextSibling;x.append(n);if(n.nodeName=='BR')break}return x},e=q('enabled'),p=q('pin'),t=q('type'),g=q('trigger'),r=q('volume'),m=q('nightMode'),f0=q('nightFrom'),f1=q('nightTo'),s=q('sound');L(e,'Enabled:');L(p,'GPIO Pin:');L(t,'Buzzer Type:');L(g,'Trigger level:');L(m,'Night mode:');L(f1,'To:');L(s,'Sound:');let V=w(r),G=w(g),P=w(p),N0=w(f0),N1=w(f1),R=()=>{if(!s||!t)return;let k=t.value=='0'?1:t.value=='1'?2:4,A=[...s.options];A.forEach(o=>{let h=!(o._b&k);o.hidden=h;o.disabled=h});if(s.selectedOptions[0]&&s.selectedOptions[0].disabled){let o=A.find(o=>!o.disabled);if(o)s.value=o.value}},U=()=>{if(!s)return;let u=location.origin+'/buzzer?play='+s.value,x=d.getElementById('bzurl'),y=d.getElementById('bzloop');if(x)x.textContent=u;if(y)y.textContent=u+'&loop=1'};if(V&&V.firstChild)V.firstChild.data='Volume: ';if(N0&&N0.firstChild)N0.firstChild.data='From: ';if(N1&&N1.firstChild)N1.firstChild.data='To: ';if(f0){f0.type='time';f0.style.width='120px'}if(f1){f1.type='time';f1.style.width='120px'}if(r){r.type='range';r.min=0;r.max=100;r.step=1;r.value=Math.round(Number(r.value)||0);r.style.width='170px';let n=d.createElement('span'),u=()=>{let v=Math.round(Number(r.value)||0);r.value=v;n.textContent=v+'%'};r.after(n);r.oninput=u;u()}if(s){R();let f=u=>fetch(u).then(async x=>{if(!x.ok)alert(await x.text())}),p=d.createElement('button'),z=d.createElement('button');p.type=z.type='button';p.textContent='Play';z.textContent='Stop';p.onclick=()=>f('/buzzer?play='+encodeURIComponent(s.value));z.onclick=()=>f('/buzzer?stop=1');s.after(p);p.after(z);let n=d.createElement('div');n.style='margin:8px 0;color:#fa0';n.innerHTML='<i>Save the configuration before testing hardware changes.</i>';z.after(n);let h=d.createElement('label'),c=d.createElement('input');h.style='display:block;margin:16px 0 8px';c.type='checkbox';h.append(c,d.createTextNode(' Show API commands'));n.after(h);let a=d.createElement('div');a.hidden=true;a.innerHTML='<b>Web API</b><br>Play selected sound:<br><code id=\"bzurl\"></code><br>Loop a sound:<br><code id=\"bzloop\"></code><br>Stop:<br><code>'+location.origin+'/buzzer?stop=1</code><br>Tone:<br><code>'+location.origin+'/buzzer?tone=1000&duration=200</code><br>Beep:<br><code>'+location.origin+'/buzzer?beep=150</code>';h.after(a);c.onchange=()=>a.hidden=!c.checked;s.onchange=U;U()}let H=()=>{let a=!!(t&&t.value=='2'),v=!!(t&&t.value!='0');if(P)P.hidden=a;if(G)G.hidden=a;if(V)V.hidden=!v;R();U()};if(t){t.onchange=H;H()}let N=()=>{let v=!!(m&&m.checked);if(N0)N0.hidden=!v;if(N1)N1.hidden=!v};if(m){m.onchange=N;N()}},0);"));
   }
 };
 

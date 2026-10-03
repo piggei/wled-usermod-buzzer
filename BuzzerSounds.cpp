@@ -1,4 +1,5 @@
 #include "BuzzerSounds.h"
+#include "audio/BuzzerAudioConfig.h"
 
 #include <cstring>
 
@@ -33,7 +34,7 @@ constexpr BuzzerNote SOUND_SUCCESS[] = {
 };
 
 // Victory pattern from the supplied BeepBox v9 URL, transposed +12 semitones.
-// b013 validated: b012 double-speed timing retained; only the final note is extended.
+// Hardware-validated timing: double-speed phrase with an extended final note.
 constexpr BuzzerNote SOUND_VICTORY[] = {
   {1047, 100, 50}, // C6
   {1047, 100, 50}, // C6
@@ -62,7 +63,7 @@ constexpr BuzzerNote SOUND_YANKEE_DOODLE[] = {
 };
 
 // Exact monophonic Fail pattern decoded from the supplied BeepBox v9 URL.
-// Transposed +12 semitones in b011 after hardware validation of the original octave.
+// Transposed +12 semitones after hardware validation of the original octave.
 // 150 BPM timing is unchanged: 300 ms notes with 100 ms gaps, followed by
 // two longer descending notes (600 ms / 800 ms).
 constexpr BuzzerNote SOUND_FAIL[] = {
@@ -131,21 +132,32 @@ constexpr BuzzerNote SOUND_ALARM[] = {
 // BuzzerEngine consumes it only when repeat/loop playback has another execution,
 // so one-shot playback remains audibly unchanged.
 constexpr BuzzerSound SOUNDS[] = {
-  {"beep", "Beep", SOUND_BEEP, sizeof(SOUND_BEEP) / sizeof(SOUND_BEEP[0])},
-  {"double_beep", "Double Beep", SOUND_DOUBLE_BEEP, sizeof(SOUND_DOUBLE_BEEP) / sizeof(SOUND_DOUBLE_BEEP[0])},
-  {"triple_beep", "Triple Beep", SOUND_TRIPLE_BEEP, sizeof(SOUND_TRIPLE_BEEP) / sizeof(SOUND_TRIPLE_BEEP[0])},
-  {"notification", "Notification", SOUND_NOTIFICATION, sizeof(SOUND_NOTIFICATION) / sizeof(SOUND_NOTIFICATION[0])},
-  {"success", "Success", SOUND_SUCCESS, sizeof(SOUND_SUCCESS) / sizeof(SOUND_SUCCESS[0])},
-  {"victory", "Victory", SOUND_VICTORY, sizeof(SOUND_VICTORY) / sizeof(SOUND_VICTORY[0])},
-  {"yankee_doodle", "Yankee Doodle", SOUND_YANKEE_DOODLE, sizeof(SOUND_YANKEE_DOODLE) / sizeof(SOUND_YANKEE_DOODLE[0])},
-  {"fail", "Fail", SOUND_FAIL, sizeof(SOUND_FAIL) / sizeof(SOUND_FAIL[0])},
-  {"star_wars", "Star Wars", SOUND_STAR_WARS, sizeof(SOUND_STAR_WARS) / sizeof(SOUND_STAR_WARS[0])},
-  {"warning", "Warning", SOUND_WARNING, sizeof(SOUND_WARNING) / sizeof(SOUND_WARNING[0])},
-  {"error", "Error", SOUND_ERROR, sizeof(SOUND_ERROR) / sizeof(SOUND_ERROR[0])},
-  {"connect", "Connect", SOUND_CONNECT, sizeof(SOUND_CONNECT) / sizeof(SOUND_CONNECT[0])},
-  {"disconnect", "Disconnect", SOUND_DISCONNECT, sizeof(SOUND_DISCONNECT) / sizeof(SOUND_DISCONNECT[0])},
-  {"attention", "Attention", SOUND_ATTENTION, sizeof(SOUND_ATTENTION) / sizeof(SOUND_ATTENTION[0])},
-  {"alarm", "Alarm", SOUND_ALARM, sizeof(SOUND_ALARM) / sizeof(SOUND_ALARM[0])},
+  {"alarm", "Alarm", SOUND_ALARM, sizeof(SOUND_ALARM) / sizeof(SOUND_ALARM[0]), BUZZER_BACKEND_ALL},
+  {"attention", "Attention", SOUND_ATTENTION, sizeof(SOUND_ATTENTION) / sizeof(SOUND_ATTENTION[0]), BUZZER_BACKEND_ALL},
+  {"beep", "Beep", SOUND_BEEP, sizeof(SOUND_BEEP) / sizeof(SOUND_BEEP[0]), BUZZER_BACKEND_ALL},
+  {"connect", "Connect", SOUND_CONNECT, sizeof(SOUND_CONNECT) / sizeof(SOUND_CONNECT[0]), BUZZER_BACKEND_ALL},
+  {"disconnect", "Disconnect", SOUND_DISCONNECT, sizeof(SOUND_DISCONNECT) / sizeof(SOUND_DISCONNECT[0]), BUZZER_BACKEND_ALL},
+  {"double_beep", "Double Beep", SOUND_DOUBLE_BEEP, sizeof(SOUND_DOUBLE_BEEP) / sizeof(SOUND_DOUBLE_BEEP[0]), BUZZER_BACKEND_ALL},
+  {"error", "Error", SOUND_ERROR, sizeof(SOUND_ERROR) / sizeof(SOUND_ERROR[0]), BUZZER_BACKEND_ALL},
+  {"fail", "Fail", SOUND_FAIL, sizeof(SOUND_FAIL) / sizeof(SOUND_FAIL[0]), BUZZER_BACKEND_ALL},
+#if defined(WLED_BUZZER_AUDIO_SAMPLES)
+  {"imperial_march", "Imperial March", nullptr, 0u, BUZZER_BACKEND_AUDIO},
+#endif
+  {"notification", "Notification", SOUND_NOTIFICATION, sizeof(SOUND_NOTIFICATION) / sizeof(SOUND_NOTIFICATION[0]), BUZZER_BACKEND_ALL},
+  {"star_wars", "Star Wars", SOUND_STAR_WARS, sizeof(SOUND_STAR_WARS) / sizeof(SOUND_STAR_WARS[0]), BUZZER_BACKEND_ALL},
+  {"success", "Success", SOUND_SUCCESS, sizeof(SOUND_SUCCESS) / sizeof(SOUND_SUCCESS[0]), BUZZER_BACKEND_ALL},
+  {"triple_beep", "Triple Beep", SOUND_TRIPLE_BEEP, sizeof(SOUND_TRIPLE_BEEP) / sizeof(SOUND_TRIPLE_BEEP[0]), BUZZER_BACKEND_ALL},
+#if defined(WLED_BUZZER_AUDIO_SAMPLES)
+  {"trumpet", "Trumpet", nullptr, 0u, BUZZER_BACKEND_AUDIO},
+#endif
+  {"victory", "Victory", SOUND_VICTORY, sizeof(SOUND_VICTORY) / sizeof(SOUND_VICTORY[0]), BUZZER_BACKEND_ALL},
+#if defined(WLED_BUZZER_AUDIO_SAMPLES)
+  {"wakeup", "Wake Up", nullptr, 0u, BUZZER_BACKEND_AUDIO},
+#endif
+  {"warning", "Warning", SOUND_WARNING, sizeof(SOUND_WARNING) / sizeof(SOUND_WARNING[0]), BUZZER_BACKEND_ALL},
+  {"yankee_doodle", "Yankee Doodle", SOUND_YANKEE_DOODLE, sizeof(SOUND_YANKEE_DOODLE) / sizeof(SOUND_YANKEE_DOODLE[0]), BUZZER_BACKEND_ALL},
+// Audio-only entries are compiled only when bundled samples are enabled. This
+// keeps their IDs and labels out of Active/Passive-only firmware completely.
 };
 }
 
@@ -164,4 +176,9 @@ const BuzzerSound& BuzzerSounds::at(size_t index) {
 
 size_t BuzzerSounds::count() {
   return sizeof(SOUNDS) / sizeof(SOUNDS[0]);
+}
+
+
+bool BuzzerSounds::supportsBackend(const BuzzerSound& sound, uint8_t backendMask) {
+  return (sound.backendMask & backendMask) != 0u;
 }

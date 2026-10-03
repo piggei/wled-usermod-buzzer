@@ -1,7 +1,7 @@
 {
   "name": "wled-usermod-buzzer",
-  "version": "0.2.0-dev-b002",
-  "description": "Standalone active/passive buzzer service usermod for WLED",
+  "version": "0.2.0",
+  "description": "Standalone active/passive buzzer and optional I2S audio service usermod for WLED",
   "keywords": [
     "wled",
     "buzzer",
@@ -17,7 +17,8 @@
     "libArchive": false,
     "srcDir": ".",
     "srcFilter": [
-      "+<*.cpp>"
+      "+<*.cpp>",
+      "+<audio/*.cpp>"
     ]
   }
 }
